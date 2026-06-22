@@ -1,0 +1,33 @@
+# === Documentos internos: NO publicar (referencian la versión con bot) ===
+marketing/
+
+# === Artefactos de compilación / distribución ===
+dist/
+build/
+build_nuitka/
+build_nuitka_onedir/
+*.exe
+# Builds del nombre/empaquetado antiguos (BMI se compila con build_protegido.bat / Nuitka)
+*.spec
+build_exe.bat
+pyarmor.bug.log
+
+# === Caché y artefactos de Python ===
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+*.log
+
+# === Entornos virtuales ===
+.venv/
+venv/
+env/
+ENV/
+
+# === IDE / Sistema operativo ===
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

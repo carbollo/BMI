@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>BMI — Bethesda Mod Installer · Descarga e instala mods automáticamente</title>
+<meta name="description" content="BMI (Bethesda Mod Installer): descarga e instala mods de Nexus Mods en Skyrim, Fallout, Oblivion, Starfield y más. Portable, gratis y en 5 idiomas." />
+<meta property="og:title" content="BMI — Bethesda Mod Installer" />
+<meta property="og:description" content="Descarga e instala mods de Nexus en tus juegos de Bethesda, automáticamente." />
+<meta property="og:type" content="website" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23e08b3e'/%3E%3Ctext x='50%25' y='53%25' font-family='Segoe UI,Arial,sans-serif' font-size='30' font-weight='900' fill='%231a0f04' text-anchor='middle' dominant-baseline='middle'%3EBMI%3C/text%3E%3C/svg%3E" />
+<style>
+  :root{
+    --bg:#0d0d0f; --bg2:#16161a; --panel:#1f1f25; --panel2:#26262d; --border:#37373d;
+    --text:#ececf0; --dim:#9a9aa4; --accent:#e08b3e; --accent-hi:#f4a85a; --gold:#ffcf8a;
+    --success:#3fb950; --danger:#d9534f; --info:#4ea3e0;
+    --radius:14px; --maxw:1100px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{
+    font-family:"Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif;
+    background:var(--bg);color:var(--text);line-height:1.65;-webkit-font-smoothing:antialiased;
+    overflow-x:hidden;
+  }
+  /* fondo con brillo animado */
+  body::before{
+    content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;
+    background:
+      radial-gradient(900px 480px at 18% -8%, #3a2410 0%, transparent 60%),
+      radial-gradient(800px 480px at 88% 0%, #1b2533 0%, transparent 55%),
+      radial-gradient(1000px 700px at 50% 120%, #241608 0%, transparent 60%);
+    animation:drift 18s ease-in-out infinite alternate;
+  }
+  @keyframes drift{from{transform:translate3d(0,0,0) scale(1)}to{transform:translate3d(0,-14px,0) scale(1.04)}}
+  a{color:var(--accent-hi);text-decoration:none}
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 22px}
+  .btn{display:inline-flex;align-items:center;gap:10px;font-weight:700;padding:14px 26px;
+    border-radius:11px;border:1px solid transparent;cursor:pointer;font-size:1.05rem;transition:.18s}
+  .btn-primary{background:linear-gradient(180deg,var(--accent-hi),var(--accent));color:#1a0f04;
+    box-shadow:0 8px 26px -10px var(--accent)}
+  .btn-primary:hover{filter:brightness(1.07);transform:translateY(-2px);box-shadow:0 14px 34px -12px var(--accent)}
+  .btn-ghost{background:rgba(255,255,255,.03);border-color:var(--border);color:var(--text)}
+  .btn-ghost:hover{border-color:var(--accent);background:rgba(224,139,62,.08)}
+
+  /* reveal on scroll */
+  .reveal{opacity:0;transform:translateY(18px);transition:opacity .6s ease,transform .6s ease}
+  .reveal.in{opacity:1;transform:none}
+
+  /* NAV */
+  header.nav{position:sticky;top:0;z-index:20;backdrop-filter:blur(10px);
+    background:rgba(13,13,15,.7);border-bottom:1px solid var(--border)}
+  .nav-in{display:flex;align-items:center;justify-content:space-between;height:66px}
+  .logo{display:flex;align-items:center;gap:12px}
+  .logo .mark{width:38px;height:38px;border-radius:10px;
+    background:linear-gradient(135deg,var(--gold),var(--accent));display:grid;place-items:center;
+    color:#1a0f04;font-weight:900;font-size:.92rem;letter-spacing:.5px;
+    box-shadow:0 6px 18px -6px var(--accent)}
+  .logo .txt b{font-size:1.1rem;letter-spacing:.3px}
+  .logo .txt span{display:block;font-size:.74rem;color:var(--dim);margin-top:-2px;letter-spacing:.5px}
+  .nav-links{display:flex;gap:24px;align-items:center}
+  .nav-links a{color:var(--dim);font-weight:600;font-size:.95rem}
+  .nav-links a:hover{color:var(--text)}
+
+  /* HERO */
+  .hero{text-align:center;padding:88px 0 40px}
+  .pill{display:inline-flex;gap:8px;align-items:center;border:1px solid var(--border);
+    background:var(--panel);color:var(--gold);padding:6px 16px;border-radius:999px;
+    font-size:.84rem;margin-bottom:24px}
+  .pill .dot{width:7px;height:7px;border-radius:50%;background:var(--success);box-shadow:0 0 8px var(--success)}
+  .hero h1{font-size:clamp(2.2rem,5.4vw,3.6rem);line-height:1.1;letter-spacing:-.025em;font-weight:800}
+  .grad{background:linear-gradient(90deg,var(--gold),var(--accent));-webkit-background-clip:text;
+    background-clip:text;color:transparent}
+  .hero p.lead{color:var(--dim);font-size:1.22rem;max-width:700px;margin:20px auto 32px}
+  .cta{display:flex;gap:14px;justify-content:center;flex-wrap:wrap}
+  .meta{margin-top:20px;color:var(--dim);font-size:.92rem;display:flex;gap:20px;
+    justify-content:center;flex-wrap:wrap}
+  .meta b{color:var(--text)}
+
+  /* mock window */
+  .shot{margin:50px auto 0;max-width:880px;border:1px solid var(--border);border-radius:var(--radius);
+    overflow:hidden;box-shadow:0 40px 90px -34px #000, 0 0 0 1px rgba(224,139,62,.08);
+    background:var(--bg2)}
+  .shot .bar{height:40px;background:#101013;border-bottom:1px solid var(--border);
+    display:flex;align-items:center;gap:8px;padding:0 14px}
+  .shot .bar i{width:12px;height:12px;border-radius:50%}
+  .shot .bar .ttl{color:var(--dim);font-size:.82rem;margin-left:8px}
+  .shot .tabs{display:flex;gap:4px;padding:12px 12px 0;border-bottom:1px solid var(--border);flex-wrap:wrap}
+  .shot .tab{padding:8px 14px;border-radius:8px 8px 0 0;color:var(--dim);font-size:.88rem;
+    border:1px solid transparent;border-bottom:none}
+  .shot .tab.on{background:var(--panel);color:var(--text);border-color:var(--border)}
+  .shot .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;padding:18px}
+  .shot .card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px}
+  .shot .card span{color:var(--dim);font-size:.76rem}
+  .shot .card b{display:block;font-size:1.12rem;margin-top:5px}
+
+  /* STATS band */
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin:54px 0 10px}
+  .stat{text-align:center;background:var(--panel);border:1px solid var(--border);
+    border-radius:var(--radius);padding:22px 14px}
+  .stat b{display:block;font-size:1.9rem;font-weight:800;color:var(--gold);letter-spacing:-.02em}
+  .stat span{color:var(--dim);font-size:.9rem}
+
+  /* GAMES chips */
+  .games{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:14px}
+  .chip{border:1px solid var(--border);background:var(--panel);color:var(--text);
+    padding:8px 16px;border-radius:999px;font-size:.9rem;transition:.15s}
+  .chip:hover{border-color:var(--accent);color:var(--gold)}
+
+  /* SECTIONS */
+  section{padding:70px 0}
+  .sec-h{text-align:center;margin-bottom:44px}
+  .sec-h h2{font-size:clamp(1.8rem,3.6vw,2.4rem);letter-spacing:-.02em;font-weight:800}
+  .sec-h p{color:var(--dim);margin-top:10px;font-size:1.05rem}
+
+  .features{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+  .feat{background:linear-gradient(180deg,var(--panel),#1b1b21);border:1px solid var(--border);
+    border-radius:var(--radius);padding:24px;transition:.18s;position:relative}
+  .feat:hover{border-color:var(--accent);transform:translateY(-3px);
+    box-shadow:0 18px 40px -22px var(--accent)}
+  .feat .ic{width:46px;height:46px;border-radius:11px;display:grid;place-items:center;font-size:1.5rem;
+    background:rgba(224,139,62,.12);border:1px solid rgba(224,139,62,.25)}
+  .feat h3{margin:14px 0 6px;font-size:1.14rem}
+  .feat p{color:var(--dim);font-size:.96rem}
+
+  .steps{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
+  .step{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:22px;position:relative}
+  .step .n{width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,var(--gold),var(--accent));
+    color:#1a0f04;font-weight:800;display:grid;place-items:center;margin-bottom:12px}
+  .step h4{font-size:1.06rem;margin-bottom:4px}
+  .step p{color:var(--dim);font-size:.92rem}
+
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:22px;align-items:start}
+  .box{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:26px}
+  .box.pro{border-color:rgba(224,139,62,.4);background:linear-gradient(180deg,#221708,var(--panel))}
+  .box h3{margin-bottom:14px;display:flex;align-items:center;gap:8px;font-size:1.2rem}
+  .box ul{list-style:none;display:grid;gap:11px}
+  .box li{position:relative;padding-left:22px;color:var(--dim)}
+  .box li::before{content:"✓";position:absolute;left:0;top:0;color:var(--success);font-weight:800}
+  .box.pro li::before{content:"★";color:var(--gold)}
+
+  /* DOWNLOAD */
+  .dl{background:
+      radial-gradient(600px 200px at 50% 0%, rgba(224,139,62,.18), transparent 70%),
+      linear-gradient(180deg,#1d1408,var(--bg2));
+    border:1px solid rgba(224,139,62,.35);border-radius:20px;text-align:center;padding:54px 24px;
+    box-shadow:0 30px 80px -40px var(--accent)}
+  .dl h2{font-size:2.1rem;font-weight:800}
+  .dl .size{color:var(--dim);margin:10px 0 26px}
+  .langs{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:26px}
+  .langs span{border:1px solid var(--border);background:rgba(0,0,0,.25);padding:5px 14px;
+    border-radius:999px;font-size:.85rem;color:var(--dim)}
+  code{background:#000;border:1px solid var(--border);border-radius:6px;padding:2px 7px;font-size:.86em}
+
+  details{background:var(--panel);border:1px solid var(--border);border-radius:11px;
+    padding:16px 20px;margin-bottom:12px;transition:.15s}
+  details[open]{border-color:var(--accent)}
+  details summary{cursor:pointer;font-weight:600;list-style:none;display:flex;justify-content:space-between;gap:12px}
+  details summary::-webkit-details-marker{display:none}
+  details summary::after{content:"+";color:var(--accent);font-weight:800;font-size:1.2rem}
+  details[open] summary::after{content:"−"}
+  details p{color:var(--dim);margin-top:12px}
+  details ul{margin:12px 0 0 2px;list-style:none;display:grid;gap:7px}
+  details ul li{position:relative;padding-left:18px;color:var(--dim)}
+  details ul li::before{content:"›";position:absolute;left:0;top:0;color:var(--accent);font-weight:800}
+
+  /* REQUISITOS */
+  .reqs{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+  .req{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:22px}
+  .req .ic{font-size:1.7rem}
+  .req h4{margin:10px 0 5px;font-size:1.06rem}
+  .req p{color:var(--dim);font-size:.93rem}
+
+  /* GUIA paso a paso */
+  .guide{display:grid;gap:16px;max-width:860px;margin:0 auto}
+  .gstep{display:grid;grid-template-columns:auto 1fr;gap:18px;background:var(--panel);
+    border:1px solid var(--border);border-radius:var(--radius);padding:22px 24px;transition:.18s}
+  .gstep:hover{border-color:var(--accent)}
+  .gstep .gn{width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,var(--gold),var(--accent));
+    color:#1a0f04;font-weight:800;display:grid;place-items:center;font-size:1.05rem}
+  .gstep h4{font-size:1.14rem;margin-bottom:6px}
+  .gstep>div>p{color:var(--dim);font-size:.96rem}
+  .gstep ul{list-style:none;display:grid;gap:8px;margin-top:10px}
+  .gstep li{position:relative;padding-left:18px;color:var(--dim);font-size:.96rem}
+  .gstep li::before{content:"›";position:absolute;left:0;top:0;color:var(--accent);font-weight:800}
+  .gstep b{color:var(--text)}
+  .tag{display:inline-block;font-size:.72rem;font-weight:700;padding:2px 9px;border-radius:999px;
+    background:rgba(255,255,255,.06);color:var(--dim);border:1px solid var(--border)}
+  .tag.free{background:rgba(63,185,80,.14);color:var(--success);border-color:rgba(63,185,80,.3)}
+  .tag.pro{background:rgba(224,139,62,.14);color:var(--gold);border-color:rgba(224,139,62,.35)}
+
+  footer{border-top:1px solid var(--border);padding:38px 0;color:var(--dim);font-size:.9rem;margin-top:30px}
+  footer .disc{background:var(--panel);border:1px solid var(--border);border-radius:11px;
+    padding:16px 20px;margin-bottom:18px}
+  footer .foot-row{display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap;align-items:center}
+
+  @media(max-width:860px){
+    .features,.shot .grid{grid-template-columns:1fr 1fr}
+    .steps,.stats{grid-template-columns:1fr 1fr}
+    .two{grid-template-columns:1fr}
+    .nav-links{display:none}
+  }
+  @media(max-width:520px){
+    .features,.steps,.stats,.shot .grid{grid-template-columns:1fr}
+    .hero{padding-top:60px}
+  }
+</style>
+</head>
+<body>
+
+<header class="nav">
+  <div class="wrap nav-in">
+    <div class="logo">
+      <span class="mark">BMI</span>
+      <span class="txt"><b>Bethesda Mod Installer</b><span>Gestor de mods para Nexus</span></span>
+    </div>
+    <nav class="nav-links">
+      <a href="#features">Características</a>
+      <a href="#requisitos">Requisitos</a>
+      <a href="#como">Guía de uso</a>
+      <a href="#faq">FAQ</a>
+      <a href="#errores">Errores</a>
+      <a href="#descargar" class="btn btn-primary" style="padding:9px 20px;font-size:.95rem">⬇ Descargar</a>
+    </nav>
+  </div>
+</header>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="wrap">
+    <span class="pill"><span class="dot"></span> Windows · Portable · Gratis · 5 idiomas</span>
+    <h1>Instala mods de Nexus en tus<br>juegos de Bethesda <span class="grad">sin complicaciones</span></h1>
+    <p class="lead">BMI descarga, instala y ordena mods por ti. Pega una URL y listo: resuelve
+      dependencias (otros mods que el mod necesita para funcionar), colecciones y traducciones automáticamente.</p>
+    <div class="cta">
+      <a href="#descargar" class="btn btn-primary">⬇ Descargar para Windows</a>
+      <a href="#features" class="btn btn-ghost">Ver características</a>
+    </div>
+    <div class="meta">
+      <span>✓ Un solo archivo, sin instalación</span>
+      <span>✓ Sin bots (no automatiza la web de Nexus, así no arriesgas tu cuenta) · respeta sus normas</span>
+      <span>✓ <b>128&nbsp;MB</b></span>
+    </div>
+
+    <!-- maqueta de la app -->
+    <div class="shot reveal" aria-hidden="true">
+      <div class="bar"><i style="background:#d9534f"></i><i style="background:#e0a83e"></i><i style="background:#3fb950"></i>
+        <span class="ttl">BMI — Skyrim Special Edition</span></div>
+      <div class="tabs">
+        <div class="tab on">🏠 Inicio</div><div class="tab">🔎 Explorar Nexus</div>
+        <div class="tab">⬇ Descargas</div><div class="tab">📦 Mods</div><div class="tab">📜 Registro</div>
+      </div>
+      <div class="grid">
+        <div class="card"><span>Cuenta Nexus</span><b style="color:var(--success)">Gratis</b></div>
+        <div class="card"><span>Carpeta de datos</span><b style="color:var(--success)">✓ Encontrada</b></div>
+        <div class="card"><span>Script Extender</span><b style="color:var(--success)">✓ SKSE64</b></div>
+        <div class="card"><span>Mods gestionados</span><b>37</b></div>
+        <div class="card"><span>Plugins activos</span><b>142 / 150</b></div>
+        <div class="card"><span>Idioma</span><b>Español</b></div>
+      </div>
+    </div>
+
+    <!-- estadísticas -->
+    <div class="stats reveal">
+      <div class="stat"><b>9</b><span>juegos soportados</span></div>
+      <div class="stat"><b>5</b><span>idiomas de interfaz</span></div>
+      <div class="stat"><b>1 clic</b><span>por mod con cuenta gratis · 0 con Premium</span></div>
+      <div class="stat"><b>0 €</b><span>totalmente gratis</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- FEATURES -->
+<section id="features">
+  <div class="wrap">
+    <div class="sec-h reveal"><h2>Todo lo que necesitas para tus mods</h2>
+      <p>Pensado para que instalar mods sea tan fácil como pegar una URL.</p></div>
+    <div class="features">
+      <div class="feat reveal"><div class="ic">🎮</div><h3>Varios juegos</h3>
+        <p>Skyrim Special Edition y Anniversary Edition por separado, Fallout 4, Fallout 3, New Vegas, Oblivion, Starfield y Morrowind.</p></div>
+      <div class="feat reveal"><div class="ic">⚡</div><h3>Descarga automática</h3>
+        <p>Con cuenta Premium, pega la URL y se descarga sola por la API. Con cuenta gratuita, basta un clic vía el protocolo nxm:// (lo que hace que el botón «Mod Manager Download» de Nexus abra BMI automáticamente).</p></div>
+      <div class="feat reveal"><div class="ic">📦</div><h3>Colecciones</h3>
+        <p>Pega el enlace de una colección de Nexus y se encolan todos sus mods de una vez.</p></div>
+      <div class="feat reveal"><div class="ic">➕</div><h3>Cola múltiple</h3>
+        <p>Añade muchas URLs a la vez (una por línea) y se descargan en orden, una tras otra.</p></div>
+      <div class="feat reveal"><div class="ic">🧩</div><h3>Instaladores FOMOD</h3>
+        <p>El asistente de opciones que muestran algunos mods al instalarse (p. ej. para elegir texturas o variantes): puedes elegirlas a mano o dejar el modo automático con las recomendadas.</p></div>
+      <div class="feat reveal"><div class="ic">🌐</div><h3>Traducciones por idioma</h3>
+        <p>Detecta e instala la traducción del mod en el idioma que elijas: español, inglés, francés, alemán o italiano.</p></div>
+      <div class="feat reveal"><div class="ic">🔗</div><h3>Dependencias</h3>
+        <p>Resuelve los mods requeridos y los descarga antes que el mod principal.</p></div>
+      <div class="feat reveal"><div class="ic">📋</div><h3>Gestor de mods</h3>
+        <p>Orden de carga, activar/desactivar, conflictos, perfiles y búsqueda. Detecta también los mods que ya tenías.</p></div>
+      <div class="feat reveal"><div class="ic">▶</div><h3>Jugar con un clic</h3>
+        <p>Lanza el juego con su Script Extender (SKSE64, F4SE…) desde el propio programa.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- JUEGOS -->
+<section id="juegos" style="background:var(--bg2);border-top:1px solid var(--border);border-bottom:1px solid var(--border)">
+  <div class="wrap">
+    <div class="sec-h reveal"><h2>Compatible con tus juegos de Bethesda</h2>
+      <p>Un mismo programa para toda tu biblioteca.</p></div>
+    <div class="games reveal">
+      <span class="chip">Skyrim Special Edition</span>
+      <span class="chip">Skyrim Anniversary Edition</span>
+      <span class="chip">Skyrim (clásico)</span>
+      <span class="chip">Fallout 4</span>
+      <span class="chip">Fallout 3</span>
+      <span class="chip">Fallout: New Vegas</span>
+      <span class="chip">Oblivion</span>
+      <span class="chip">Starfield</span>
+      <span class="chip">Morrowind</span>
+    </div>
+  </div>
+</section>
+
+<!-- REQUISITOS -->
+<section id="requisitos">
+  <div class="wrap">
+    <div class="sec-h reveal"><h2>Lo que necesitas</h2>
+      <p>Tres cosas y a modear. Sin instaladores ni permisos de administrador.</p></div>
+    <div class="reqs">
+      <div class="req reveal"><div class="ic">🖥️</div><h4>Windows 10 u 11 · 64 bits</h4>
+        <p>Programa portable de ~128 MB. No instala nada en el sistema: lo ejecutas y funciona.</p></div>
+      <div class="req reveal"><div class="ic">🎮</div><h4>El juego instalado</h4>
+        <p>Skyrim, Fallout, Oblivion, Starfield o Morrowind, desde Steam, GOG o Game Pass. BMI detecta automáticamente la carpeta <code>Data</code> en Steam (p. ej. <code>...\steamapps\common\Skyrim Special Edition\Data</code>); en GOG o Game Pass la indicas a mano.</p></div>
+      <div class="req reveal"><div class="ic">🔑</div><h4>Cuenta de Nexus · gratis</h4>
+        <p>Solo necesitas tu <b>API Key personal</b>, que se obtiene gratis desde tu perfil de Nexus Mods.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- GUIA DE USO -->
+<section id="como" style="background:var(--bg2);border-top:1px solid var(--border);border-bottom:1px solid var(--border)">
+  <div class="wrap">
+    <div class="sec-h reveal"><h2>Guía de uso paso a paso</h2>
+      <p>De cero a jugar con mods. La primera vez, un asistente te acompaña.</p></div>
+    <div class="guide">
+      <div class="gstep reveal"><div class="gn">1</div><div>
+        <h4>Consigue tu API Key de Nexus <span class="tag free">gratis</span></h4>
+        <p>Inicia sesión en Nexus Mods y abre <b>Mi cuenta → API Keys</b>
+          (<a href="https://www.nexusmods.com/users/myaccount?tab=api" target="_blank" rel="noopener">enlace directo</a>).</p>
+        <ul>
+          <li>En la sección <b>«Personal API Key»</b>, pulsa <b>Generate</b> y copia la clave.</li>
+          <li>La pegas una vez en BMI y queda guardada; puedes revocarla cuando quieras.</li>
+        </ul></div></div>
+      <div class="gstep reveal"><div class="gn">2</div><div>
+        <h4>Primer arranque: el asistente te guía en 3 pasos</h4>
+        <ul>
+          <li><b>Idioma y juego:</b> elige idioma (Español, English, Français, Deutsch, Italiano) y tu juego.</li>
+          <li><b>API Key:</b> pégala y pulsa <b>Validar</b> — verás tu nombre y si la cuenta es Gratis o Premium.</li>
+          <li><b>Carpeta del juego:</b> indica la carpeta <code>Data</code> (BMI suele detectarla en Steam sola).</li>
+          <li><b>Protocolo nxm://:</b> pulsa <b>Registrar</b> para que el botón de descarga de Nexus abra BMI.</li>
+        </ul></div></div>
+      <div class="gstep reveal"><div class="gn">3</div><div>
+        <h4>Añade mods — cuatro formas</h4>
+        <ul>
+          <li>Pega la <b>URL de un mod</b> en la barra superior y pulsa <b>⬇ Añadir / Descargar</b>.</li>
+          <li>Pega el enlace de una <b>colección</b> y se encolan todos sus mods de golpe.</li>
+          <li>Botón <b>➕ Varios…</b> para pegar muchas URLs a la vez, una por línea.</li>
+          <li>O navega por Nexus dentro del programa (<b>🔎 Explorar Nexus</b>) y pulsa <b>⬇ Descargar este mod</b>.</li>
+        </ul></div></div>
+      <div class="gstep reveal"><div class="gn">4</div><div>
+        <h4>La descarga, según tu cuenta</h4>
+        <ul>
+          <li><span class="tag pro">Premium</span> Automática por la API oficial: pega la URL y no haces nada más.</li>
+          <li><span class="tag free">Gratis</span> BMI abre la página del mod en Nexus; pulsa <b>Mod Manager Download</b> y, si tu cuenta es gratuita, el botón <b>Slow download</b> (descarga lenta) que ofrece la propia web de Nexus. BMI lo instala solo.</li>
+          <li>En ambos casos BMI descarga antes las <b>dependencias</b>, busca la <b>traducción</b> a tu idioma y, si el mod trae un instalador <b>FOMOD</b>, abre el asistente para que elijas las opciones (o aplica las recomendadas automáticamente, según el modo configurado en Ajustes).</li>
+        </ul></div></div>
+      <div class="gstep reveal"><div class="gn">5</div><div>
+        <h4>Gestiona tus mods <span class="tag">pestaña 📦 Mods</span></h4>
+        <p>Los <b>plugins</b> (.esp/.esm) son los archivos que activan el contenido de cada mod; su orden decide cuál manda cuando dos chocan.</p>
+        <ul>
+          <li><b>Mods:</b> los instalados por BMI los activas/desactivas (repliega sus archivos sin borrarlos) o los desinstalas del todo, con búsqueda y acciones en lote. También detecta los mods que ya tenías: esos solo se activan/desactivan, y para quitarlos del todo lo haces desde donde los instalaste.</li>
+          <li><b>↕ Orden de carga:</b> sube/baja plugins, o pulsa <b>⚡ Auto-ordenar</b> para colocar los plugins base (los <b>masters</b>, de los que dependen otros) antes que el resto.</li>
+          <li><b>⚠ Conflictos:</b> ve qué mods pisan los mismos archivos y cuál gana.</li>
+          <li><b>👤 Perfiles:</b> guarda y alterna entre distintas configuraciones de carga.</li>
+        </ul></div></div>
+      <div class="gstep reveal"><div class="gn">6</div><div>
+        <h4>¡A jugar!</h4>
+        <ul>
+          <li>Pulsa <b>▶ Jugar</b> y BMI lanza el juego con su Script Extender (SKSE64, F4SE, NVSE…) si lo tienes instalado.</li>
+        </ul></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- FREE vs PREMIUM -->
+<section>
+  <div class="wrap">
+    <div class="sec-h reveal"><h2>Funciona con cualquier cuenta de Nexus</h2></div>
+    <div class="two">
+      <div class="box reveal">
+        <h3>🆓 Cuenta gratuita</h3>
+        <ul>
+          <li>Descarga e instala mods con <b>un clic</b> por mod (vía nxm://, igual que Vortex o MO2)</li>
+          <li>Colecciones, dependencias, FOMOD y traducciones</li>
+          <li>Gestor de mods completo y lanzador del juego</li>
+          <li>Sin coste y sin saltarte las normas de Nexus</li>
+        </ul>
+      </div>
+      <div class="box pro reveal">
+        <h3>⭐ Cuenta Premium</h3>
+        <ul>
+          <li>Descarga <b>100% automática</b> por la API: pega la URL y ya está, sin clics</li>
+          <li>Ideal para colas largas y colecciones grandes</li>
+          <li>El resto de funciones son idénticas a la versión gratuita</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- DESCARGAR -->
+<section id="descargar">
+  <div class="wrap">
+    <div class="dl reveal">
+      <h2>Descargar BMI · Bethesda Mod Installer</h2>
+      <p class="size">Windows 10 y 11 · 64 bits · ~128 MB · versión portable</p>
+      <a href="https://github.com/carbollo/BMI/releases/latest/download/BMI.exe" download
+         class="btn btn-primary" style="font-size:1.18rem;padding:17px 36px">⬇ Descargar para Windows</a>
+      <p style="margin-top:14px;font-size:.88rem"><a href="https://github.com/carbollo/BMI/releases" target="_blank" rel="noopener">Ver todas las versiones y notas de cambios en GitHub</a></p>
+      <div class="langs">
+        <span>Español</span><span>English</span><span>Français</span><span>Deutsch</span><span>Italiano</span>
+      </div>
+      <p style="color:var(--dim);margin:22px auto 0;font-size:.88rem;max-width:580px">
+        🛡️ <b style="color:var(--text)">¿Tu antivirus lo marca?</b> Es un falso positivo del empaquetado de Python:
+        <b style="color:var(--success)">65 de 67 motores</b> —incluidos Microsoft Defender, Kaspersky, BitDefender y ESET— lo dan limpio.
+        Compruébalo en <a href="https://www.virustotal.com/gui/file/34bb3b0b8cb2f1697069c7fb749f7c65b6aac8d2af9cf5374a8ee4bf8dd428c7" target="_blank" rel="noopener">VirusTotal</a>
+        o <a href="https://metadefender.com/results/file/bzI2MDYyMjJIZHFjMnBhaF9ubC1GYURvLWNF_mdaas/overview" target="_blank" rel="noopener">MetaDefender</a>.</p>
+      <p style="color:var(--dim);margin-top:16px;font-size:.9rem">
+        El primer arranque tarda un poco (descomprime su navegador integrado). La configuración se
+        guarda en <code>%APPDATA%\BMI</code> y no necesita permisos de administrador.</p>
+    </div>
+  </div>
+</section>
+
+<!-- FAQ -->
+<section id="faq" style="background:var(--bg2);border-top:1px solid var(--border)">
+  <div class="wrap" style="max-width:780px">
+    <div class="sec-h reveal"><h2>Preguntas frecuentes y solución de problemas</h2></div>
+    <details class="reveal"><summary>¿Necesito pagar Premium en Nexus?</summary>
+      <p>No. Con cuenta gratuita funciona todo; solo añade un clic por mod, como cualquier gestor. Con Premium, la descarga es totalmente automática.</p></details>
+    <details class="reveal"><summary>¿Es seguro? ¿Me pueden banear?</summary>
+      <p>Esta versión <b>no usa bots</b> ni automatiza clics en la web de Nexus, así que no va contra sus Términos de Servicio. Usa la API oficial y el protocolo nxm:// estándar, igual que Vortex o Mod Organizer.</p></details>
+    <details class="reveal"><summary>Mi antivirus lo marca como virus, ¿es peligroso?</summary>
+      <p>No, es un <b>falso positivo</b>. BMI es un programa de Python compilado, y un par de antivirus
+        menores (Bkav, Trapmine) marcan por heurística ese tipo de empaquetado aunque no haya ninguna amenaza —
+        le pasa a muchas apps legítimas hechas igual. En los análisis públicos de
+        <a href="https://www.virustotal.com/gui/file/34bb3b0b8cb2f1697069c7fb749f7c65b6aac8d2af9cf5374a8ee4bf8dd428c7" target="_blank" rel="noopener">VirusTotal</a>
+        y <a href="https://metadefender.com/results/file/bzI2MDYyMjJIZHFjMnBhaF9ubC1GYURvLWNF_mdaas/overview" target="_blank" rel="noopener">MetaDefender</a>,
+        <b>65 de 67 motores</b> —incluidos Microsoft Defender, Kaspersky, BitDefender y ESET— lo confirman limpio.
+        Si tu antivirus lo pone en cuarentena, basta con marcarlo como excepción.</p></details>
+    <details class="reveal"><summary>¿En qué idiomas está?</summary>
+      <p>La interfaz está en español, inglés, francés, alemán e italiano. Además, puede descargar la <b>traducción de cada mod</b> en el idioma que elijas.</p></details>
+    <details class="reveal"><summary>¿Qué juegos soporta?</summary>
+      <p>Skyrim Special Edition, Skyrim Anniversary Edition, Skyrim clásico, Fallout 4, Fallout 3, Fallout: New Vegas, Oblivion, Starfield y Morrowind.</p></details>
+    <details class="reveal"><summary>¿Tengo que instalarlo?</summary>
+      <p>No. Es un único archivo <code>.exe</code> portable: lo ejecutas y funciona. La configuración se guarda en tu carpeta de usuario.</p></details>
+    <details class="reveal"><summary>¿Cómo consigo mi API Key de Nexus?</summary>
+      <p>Inicia sesión en Nexus Mods y abre <b>Mi cuenta → API Keys</b> (o directamente
+        <a href="https://www.nexusmods.com/users/myaccount?tab=api" target="_blank" rel="noopener">nexusmods.com/users/myaccount?tab=api</a>).
+        En la sección <b>«Personal API Key»</b> pulsa <i>Generate</i> y copia la clave. Pégala en el asistente de BMI
+        y pulsa <b>Validar</b>. Es gratuita y puedes revocarla cuando quieras.</p></details>
+    <details class="reveal"><summary>Pulso «descargar» en Nexus y no abre BMI</summary>
+      <p>Comprueba dos cosas:</p>
+      <ul>
+        <li>BMI debe estar <b>abierto</b> y el protocolo <code>nxm://</code> registrado. Si no lo hiciste en el asistente, ve a <b>⚙ Ajustes</b> y púlsalo (no necesita administrador).</li>
+        <li>En la web del mod usa el botón <b>«Mod Manager Download»</b>; con cuenta gratuita, además pulsa el botón <b>Slow download</b> (descarga lenta). Nexus limita la velocidad en cuentas gratis, así que los mods grandes pueden tardar; con Premium la descarga es directa y rápida. Es el mismo sistema que Vortex o Mod Organizer.</li>
+      </ul></details>
+    <details class="reveal"><summary>¿Funciona con Steam, GOG o Game Pass?</summary>
+      <p>Sí. BMI solo necesita saber dónde está la carpeta <code>Data</code> del juego. Suele detectarla sola en
+        Steam; si no, indícala a mano en el asistente o en <b>⚙ Ajustes</b> (por ejemplo, la carpeta <code>Data</code>
+        de tu instalación de GOG o Xbox/Game Pass).</p></details>
+    <details class="reveal"><summary>¿Dónde se guardan mis mods y mi configuración?</summary>
+      <p>La configuración y la lista de mods van en <code>%APPDATA%\BMI</code>. Los archivos de cada mod se
+        despliegan en la carpeta <code>Data</code> de tu juego. Al ser portable, puedes mover el <code>.exe</code> sin
+        perder nada.</p></details>
+    <details class="reveal"><summary>¿Necesito SKSE (o F4SE, NVSE…)?</summary>
+      <p>El <b>Script Extender</b> es un complemento que amplía el motor del juego; muchos mods avanzados lo necesitan para
+        funcionar. BMI <b>lanza</b> el juego con su Script Extender si lo tienes instalado, pero
+        <b>no lo instala por ti</b>: descárgalo de su web oficial y descomprímelo en la carpeta del juego (junto al
+        <code>.exe</code>). Después, el botón <b>▶ Jugar</b> lo usará automáticamente.</p></details>
+    <details class="reveal"><summary>¿Puedo desinstalar un mod sin romper nada?</summary>
+      <p>Sí. En la pestaña <b>📦 Mods</b> puedes <b>desactivar</b> un mod (repliega sus archivos sin borrarlo) o
+        <b>desinstalarlo</b> del todo. Además verás los <b>conflictos</b> (qué mod pisa a cuál) y podrás reordenar la
+        carga o guardar <b>perfiles</b>. Los mods <b>externos</b> que ya tenías solo se activan o desactivan; para
+        eliminarlos por completo, hazlo desde donde los instalaste.</p></details>
+    <details class="reveal"><summary>El primer arranque va lento o parece colgado</summary>
+      <p>Es normal solo la primera vez: BMI descomprime su navegador integrado. Dale unos segundos; los siguientes
+        arranques son rápidos.</p></details>
+  </div>
+</section>
+
+<!-- ERRORES COMUNES -->
+<section id="errores">
+  <div class="wrap" style="max-width:820px">
+    <div class="sec-h reveal"><h2>Errores comunes y cómo solucionarlos</h2>
+      <p>Soluciones a los fallos más típicos del modding de Skyrim. La mayoría no son fallos de BMI:
+        son archivos o requisitos que ciertos mods necesitan.</p></div>
+
+    <details class="reveal" open><summary>Engine Fixes: «did not pre-load and fixes are not active» (Skyrim se cierra al iniciar)</summary>
+      <p>SSE Engine Fixes tiene <b>dos partes</b>. La <b>Parte 2</b> (los archivos <code>d3dx9_42.dll</code>,
+        <code>tbb.dll</code> y <code>tbbmalloc.dll</code>) es un <b>preloader</b> que debe estar en la
+        <b>carpeta raíz del juego</b>, junto a <code>SkyrimSE.exe</code> — <b>no</b> dentro de <code>Data</code>.
+        Si están en <code>Data</code> o faltan, Engine Fixes no se pre-carga y Skyrim se cierra con ese aviso.</p>
+      <p><b>Solución:</b></p>
+      <ul>
+        <li>Abre la carpeta raíz del juego (donde está <code>SkyrimSE.exe</code>), p. ej. <code>...\steamapps\common\Skyrim Special Edition\</code>.</li>
+        <li>Si <code>d3dx9_42.dll</code>, <code>tbb.dll</code> y <code>tbbmalloc.dll</code> están dentro de <code>Data\</code>, <b>muévelos</b> a esa carpeta raíz.</li>
+        <li>Si no los tienes: en la página de <b>SSE Engine Fixes</b> en Nexus → pestaña <b>Files</b> → <b>Miscellaneous files</b> → descarga <b>«Engine Fixes part 2»</b> (botón <b>Manual</b>) y extrae esos tres archivos directamente en la carpeta raíz.</li>
+        <li>Comprueba que tienes instalado <b>Address Library for SKSE Plugins</b> (es requisito de Engine Fixes).</li>
+        <li>Vuelve a pulsar <b>▶ Jugar</b>.</li>
+      </ul></details>
+
+    <details class="reveal"><summary>El juego se cierra al arrancar con SKSE («incompatible with this version of Skyrim»)</summary>
+      <p>Suele pasar cuando <b>Steam actualiza Skyrim</b> y tu <b>SKSE64</b> o el <b>Address Library</b> ya no
+        coinciden con la versión del juego.</p>
+      <ul>
+        <li>Descarga la versión de <b>SKSE64</b> que corresponde a tu Skyrim desde su web oficial (<a href="https://skse.silverlock.org/" target="_blank" rel="noopener">skse.silverlock.org</a>) y descomprímela en la carpeta raíz del juego.</li>
+        <li>Instala el <b>Address Library</b> correcto: <b>1.5.97</b> para Skyrim SE «antiguo» o <b>1.6.x</b> para Anniversary Edition.</li>
+        <li>Si no quieres volver a actualizar, pon Skyrim en <b>«Actualizar solo al iniciarlo»</b> en Steam y arranca siempre con SKSE.</li>
+      </ul></details>
+
+    <details class="reveal"><summary>«Missing masters» o «this save relies on content that is no longer present»</summary>
+      <p>Un mod (o tu partida guardada) necesita un <b>plugin maestro</b> que no está instalado o no está activo.</p>
+      <ul>
+        <li>Instala o activa el <b>mod requerido</b>. Al añadir un mod, BMI <b>resuelve las dependencias</b> automáticamente; revisa en la pestaña <b>📦 Mods</b> que el plugin requerido esté activo.</li>
+        <li>Revisa el <b>orden de carga</b>: los <b>masters</b> van antes que los plugins que dependen de ellos (usa <b>⚡ Auto-ordenar</b>).</li>
+        <li>Evita cargar <b>partidas guardadas</b> que dependían de un mod que ya quitaste.</li>
+      </ul></details>
+
+    <details class="reveal"><summary>Objetos, ropa o armas en color morado/rosa</summary>
+      <p>Skyrim pinta de morado lo que no encuentra su <b>textura</b>: suele faltar un mod, una dependencia, o el
+        archivo <code>.bsa</code> no carga porque su nombre no coincide con el del <code>.esp</code>.</p>
+      <ul>
+        <li>Identifica de qué mod es el objeto morado y <b>reinstálalo</b> por si llegó incompleto.</li>
+        <li>Comprueba que tienes sus <b>requisitos</b> (los que pide su página de Nexus). BMI los resuelve al añadir el mod, pero revísalo.</li>
+        <li>Si renombraste un <code>.esp</code>, su <code>.bsa</code> debe llamarse <b>exactamente igual</b>.</li>
+        <li>Mira la pestaña <b>⚠ Conflictos</b> de BMI: si otro mod pisa esas texturas, ajusta cuál gana.</li>
+      </ul></details>
+
+    <details class="reveal"><summary>El personaje se queda en T-pose (brazos en cruz) tras instalar animaciones</summary>
+      <p>Los mods de animación necesitan que <b>Nemesis</b> (o FNIS) genere los archivos de comportamiento del juego.
+        BMI instala el mod, pero ese paso lo ejecutas tú una vez.</p>
+      <ul>
+        <li>Instala <b>Nemesis Unlimited Behavior Engine</b> (o FNIS) y el esqueleto <b>XP32 (XPMSSE)</b>.</li>
+        <li>Ejecuta Nemesis → <b>Update Engine</b> → marca tus mods de animación → <b>Launch Nemesis Behavior Engine</b> y espera a «Behavior generation complete».</li>
+        <li>Repite ese paso <b>cada vez</b> que añadas o quites un mod de animación.</li>
+      </ul></details>
+
+    <details class="reveal"><summary>NPCs con la cara gris u oscura (distinta del cuerpo)</summary>
+      <p>Pasa cuando dos mods editan el mismo NPC sin un parche: los datos de cara (FaceGen) no cuadran y la cabeza
+        queda más oscura, con una costura visible en el cuello.</p>
+      <ul>
+        <li>Solución fácil: instala el mod <b>Face Discoloration Fix</b>, que lo corrige en tiempo real.</li>
+        <li>Si dos mods editan el mismo NPC, instala su <b>parche de compatibilidad</b> si existe.</li>
+        <li>Revisa el <b>orden de carga</b> para que el mod correcto edite la cara en último lugar.</li>
+      </ul></details>
+
+    <details class="reveal"><summary>El menú de configuración (MCM) de SkyUI no aparece o sale «SKSE not running»</summary>
+      <p>SkyUI y los menús MCM dependen de <b>SKSE</b>. Si arrancas el juego desde Steam en vez de con SKSE, el menú
+        no aparece.</p>
+      <ul>
+        <li>Arranca <b>siempre con SKSE</b>: usa el botón <b>▶ Jugar</b> de BMI (lanza el Script Extender), nunca el botón de Steam.</li>
+        <li>Comprueba que la versión de <b>SKSE</b> coincide con la de tu juego.</li>
+        <li>Entra a una partida y espera 1-2 min: el MCM tarda en registrarse (míralo en <b>Sistema → Mod Configuration</b>).</li>
+      </ul></details>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div class="disc reveal">
+      <b>Aviso:</b> BMI es un proyecto independiente y no oficial. No está afiliado ni respaldado por
+      Nexus Mods ni por Bethesda Softworks. Skyrim, Fallout, Oblivion, Starfield y demás marcas
+      pertenecen a sus respectivos propietarios. Usa siempre tu propia cuenta de Nexus.
+    </div>
+    <div class="foot-row">
+      <div class="logo"><span class="mark">BMI</span>
+        <span class="txt"><b>Bethesda Mod Installer</b></span></div>
+      <div>Soporte y reportes: <a href="https://github.com/carbollo/BMI/issues" target="_blank" rel="noopener">github.com/carbollo/BMI (Issues)</a> · © <span id="y"></span> BMI — hecho para la comunidad de mods.</div>
+    </div>
+  </div>
+</footer>
+
+<script>
+  document.getElementById("y").textContent = new Date().getFullYear();
+  // Aparición suave al hacer scroll
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach(e => { if (e.isIntersecting){ e.target.classList.add("in"); io.unobserve(e.target); } });
+  }, { threshold: 0.12 });
+  document.querySelectorAll(".reveal").forEach(el => io.observe(el));
+</script>
+</body>
+</html>
