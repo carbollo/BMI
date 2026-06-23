@@ -103,7 +103,16 @@ QHeaderView::section {{
     padding: 6px; border: none; border-right: 1px solid {BORDER}; border-bottom: 1px solid {BORDER};
     font-weight: bold;
 }}
-QTableWidget::item {{ padding: 3px; }}
+QTableWidget::item {{ padding: 6px 8px; }}
+
+/* ---- Listas ---- */
+QListWidget {{
+    background: {PANEL}; border: 1px solid {BORDER}; border-radius: 8px;
+    outline: 0; padding: 4px;
+}}
+QListWidget::item {{ padding: 7px 9px; border-radius: 6px; }}
+QListWidget::item:hover {{ background: {PANEL_HI}; }}
+QListWidget::item:selected {{ background: {ACCENT}; color: #1a1207; }}
 
 /* ---- Barra de progreso ---- */
 QProgressBar {{

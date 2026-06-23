@@ -61,8 +61,11 @@ class ModsPanel(QWidget):
     def _build_mods_tab(self) -> QWidget:
         w = QWidget()
         v = QVBoxLayout(w)
+        v.setContentsMargins(14, 14, 14, 14)
+        v.setSpacing(10)
 
         top = QHBoxLayout()
+        top.setSpacing(8)
         self.search_edit = QLineEdit()
         self.search_edit.setPlaceholderText(tr("🔎 Filtrar mods…"))
         self.search_edit.textChanged.connect(self._filter_mods)
@@ -80,11 +83,16 @@ class ModsPanel(QWidget):
         self.mods_table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.mods_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self.mods_table.verticalHeader().setVisible(False)
+        self.mods_table.verticalHeader().setDefaultSectionSize(32)
+        self.mods_table.setAlternatingRowColors(True)
+        self.mods_table.setShowGrid(False)
         self.mods_table.doubleClicked.connect(lambda *_: self._details_selected())
         v.addWidget(self.mods_table, 1)
 
         bottom = QHBoxLayout()
+        bottom.setSpacing(8)
         self.sel_label = QLabel("")
+        self.sel_label.setProperty("role", "dim")
         bottom.addWidget(self.sel_label)
         bottom.addStretch()
         for text, fn in [
@@ -223,12 +231,15 @@ class ModsPanel(QWidget):
     def _build_order_tab(self) -> QWidget:
         w = QWidget()
         v = QVBoxLayout(w)
+        v.setContentsMargins(14, 14, 14, 14)
+        v.setSpacing(10)
 
         self._order_note = QLabel()
         self._order_note.setProperty("role", "dim"); self._order_note.setWordWrap(True)
         v.addWidget(self._order_note)
 
         top = QHBoxLayout()
+        top.setSpacing(8)
         self.hide_base_cb = QCheckBox(tr("Ocultar vanilla/Creation Club"))
         self.hide_base_cb.setChecked(True)
         self.hide_base_cb.toggled.connect(self._render_order)
@@ -356,8 +367,12 @@ class ModsPanel(QWidget):
     def _build_conflicts_tab(self) -> QWidget:
         w = QWidget()
         v = QVBoxLayout(w)
+        v.setContentsMargins(14, 14, 14, 14)
+        v.setSpacing(10)
         bar = QHBoxLayout()
+        bar.setSpacing(8)
         self.conflict_lbl = QLabel("")
+        self.conflict_lbl.setProperty("role", "dim")
         bar.addWidget(self.conflict_lbl)
         bar.addStretch()
         b = QPushButton(tr("🔄 Analizar"))
@@ -369,6 +384,10 @@ class ModsPanel(QWidget):
             [tr("Archivo (relativo a Data)"), tr("Mods en conflicto"), tr("Gana")])
         self.conflict_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.conflict_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.conflict_table.verticalHeader().setVisible(False)
+        self.conflict_table.verticalHeader().setDefaultSectionSize(30)
+        self.conflict_table.setAlternatingRowColors(True)
+        self.conflict_table.setShowGrid(False)
         v.addWidget(self.conflict_table, 1)
         return w
 
@@ -394,6 +413,8 @@ class ModsPanel(QWidget):
     def _build_profiles_tab(self) -> QWidget:
         w = QWidget()
         v = QVBoxLayout(w)
+        v.setContentsMargins(14, 14, 14, 14)
+        v.setSpacing(10)
         info = QLabel(tr("Un perfil guarda tu plugins.txt actual (orden + plugins activos). "
                          "Cambia entre configuraciones de carga sin perderlas."))
         info.setProperty("role", "dim"); info.setWordWrap(True)
@@ -401,6 +422,7 @@ class ModsPanel(QWidget):
         self.profile_list = QListWidget()
         v.addWidget(self.profile_list, 1)
         bar = QHBoxLayout()
+        bar.setSpacing(8)
         for text, fn in [(tr("➕ Crear desde actual"), self._profile_create),
                          (tr("✅ Aplicar"), self._profile_apply),
                          (tr("✏ Renombrar"), self._profile_rename),

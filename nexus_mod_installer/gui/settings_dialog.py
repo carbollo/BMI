@@ -62,6 +62,7 @@ class SettingsDialog(QDialog):
         tabs.addTab(self._tab_protocol(), tr("🔗 Protocolo"))
 
         buttons = QHBoxLayout()
+        buttons.setSpacing(8)
         buttons.addStretch()
         cancel_btn = QPushButton(tr("Cancelar")); cancel_btn.clicked.connect(self.reject)
         save_btn = QPushButton(tr("Guardar")); save_btn.setProperty("variant", "primary")
@@ -69,12 +70,16 @@ class SettingsDialog(QDialog):
         buttons.addWidget(cancel_btn); buttons.addWidget(save_btn)
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(10)
         layout.addWidget(tabs)
         layout.addLayout(buttons)
 
     # ------------------------------------------------------------------
     def _tab_account(self) -> QWidget:
         w = QWidget(); form = QFormLayout(w)
+        form.setContentsMargins(18, 18, 18, 18)
+        form.setSpacing(12)
         validate_btn = QPushButton(tr("Validar"))
         validate_btn.clicked.connect(self._validate_key)
         form.addRow(tr("API Key:"), self._with_button(self.api_key_edit, validate_btn))
@@ -88,6 +93,8 @@ class SettingsDialog(QDialog):
 
     def _tab_language(self) -> QWidget:
         w = QWidget(); form = QFormLayout(w)
+        form.setContentsMargins(18, 18, 18, 18)
+        form.setSpacing(12)
         form.addRow(tr("Idioma de la interfaz:"), self.lang_combo)
         note = QLabel(tr("El cambio de idioma se aplica al reiniciar el programa."))
         note.setWordWrap(True); note.setProperty("role", "dim")
@@ -96,6 +103,8 @@ class SettingsDialog(QDialog):
 
     def _tab_paths(self) -> QWidget:
         w = QWidget(); form = QFormLayout(w)
+        form.setContentsMargins(18, 18, 18, 18)
+        form.setSpacing(12)
         form.addRow(QLabel(f"<b>{tr('Juego activo')}:</b> {self.config.game().name}"))
         form.addRow(tr("Carpeta de datos del juego:"),
                     self._with_button(self.data_path_edit, self._dir_btn(self.data_path_edit)))
@@ -111,6 +120,8 @@ class SettingsDialog(QDialog):
 
     def _tab_install(self) -> QWidget:
         w = QWidget(); form = QFormLayout(w)
+        form.setContentsMargins(18, 18, 18, 18)
+        form.setSpacing(12)
         form.addRow(tr("Método de despliegue a Data:"), self.deploy_combo)
         form.addRow(tr("Instaladores FOMOD:"), self.fomod_combo)
         for cb in (self.auto_deploy_cb, self.auto_plugins_cb, self.deps_cb, self.spanish_cb):
@@ -119,6 +130,8 @@ class SettingsDialog(QDialog):
 
     def _tab_protocol(self) -> QWidget:
         w = QWidget(); form = QFormLayout(w)
+        form.setContentsMargins(18, 18, 18, 18)
+        form.setSpacing(12)
         info = QLabel(
             tr("Registra el protocolo nxm:// para que el botón 'Mod Manager Download' de la "
                "web de Nexus abra este programa. Con cuenta Premium, pegar la URL de un mod "

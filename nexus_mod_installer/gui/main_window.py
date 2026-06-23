@@ -34,8 +34,12 @@ class DownloadsPanel(QWidget):
         self._row_of: dict[int, int] = {}   # id(task) -> fila
 
         v = QVBoxLayout(self)
+        v.setContentsMargins(14, 12, 14, 12)
+        v.setSpacing(10)
         bar = QHBoxLayout()
+        bar.setSpacing(8)
         self.count_lbl = QLabel("")
+        self.count_lbl.setProperty("role", "dim")
         bar.addWidget(self.count_lbl)
         bar.addStretch()
         retry_sel = QPushButton(tr("↻ Reintentar selección"))
@@ -57,6 +61,9 @@ class DownloadsPanel(QWidget):
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.table.verticalHeader().setVisible(False)
+        self.table.verticalHeader().setDefaultSectionSize(34)
+        self.table.setAlternatingRowColors(True)
+        self.table.setShowGrid(False)
         hdr = self.table.horizontalHeader()
         hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         for c in (1, 2, 3, 4):
