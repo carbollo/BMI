@@ -115,6 +115,17 @@ QCheckBox::indicator:hover {{ border-color: {ACCENT}; }}
 QCheckBox::indicator:checked {{ background: {ACCENT}; border-color: {ACCENT}; }}
 QCheckBox::indicator:disabled {{ background: {PANEL}; border-color: {BORDER}; }}
 
+/* ---- Radios ---- */
+QRadioButton {{ spacing: 6px; background: transparent; }}
+QRadioButton::indicator {{
+    width: 16px; height: 16px; border: 1px solid {BORDER}; border-radius: 9px; background: {BG_DARK};
+}}
+QRadioButton::indicator:hover {{ border-color: {ACCENT}; }}
+QRadioButton::indicator:checked {{ background: {ACCENT}; border-color: {ACCENT}; }}
+QRadioButton::indicator:disabled {{ background: {PANEL}; border-color: {BORDER}; }}
+QRadioButton:disabled {{ color: {TEXT_DIM}; }}
+QCheckBox:disabled {{ color: {TEXT_DIM}; }}
+
 /* ---- GroupBox ---- */
 QGroupBox {{
     border: 1px solid {BORDER}; border-radius: 8px; margin-top: 14px; padding-top: 8px;
