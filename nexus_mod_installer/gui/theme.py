@@ -153,6 +153,11 @@ QFrame[role="card"] {{
     background: {PANEL}; border: 1px solid {BORDER}; border-radius: 12px;
 }}
 
+/* ---- Barra de herramientas superior ---- */
+QWidget[role="toolbar"] {{
+    background: {BG_DARK}; border: 1px solid {BORDER}; border-radius: 10px;
+}}
+
 /* ---- Barras de desplazamiento ---- */
 QScrollBar:vertical {{ background: {BG}; width: 12px; margin: 0; }}
 QScrollBar::handle:vertical {{ background: {BORDER}; border-radius: 6px; min-height: 24px; }}

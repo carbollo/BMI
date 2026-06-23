@@ -225,17 +225,20 @@ class MainWindow(QMainWindow):
         settings_btn.clicked.connect(self._open_settings)
 
         top = QHBoxLayout()
+        top.setContentsMargins(10, 8, 10, 8)
+        top.setSpacing(8)
         top.addWidget(self.game_combo)
         top.addWidget(self.url_edit, 3)
         top.addWidget(add_btn)
         top.addWidget(batch_btn)
-        top.addSpacing(10)
+        top.addSpacing(12)
         top.addWidget(self.search_edit, 2)
         top.addWidget(search_btn)
-        top.addSpacing(10)
+        top.addSpacing(12)
         top.addWidget(self.play_btn)
         top.addWidget(settings_btn)
         top_w = QWidget(); top_w.setLayout(top)
+        top_w.setProperty("role", "toolbar")
 
         # --- Navegador ---
         self.webview = NexusWebView(config.downloads_dir, config.game().domain)
@@ -262,7 +265,8 @@ class MainWindow(QMainWindow):
 
         central = QWidget()
         v = QVBoxLayout(central)
-        v.setContentsMargins(8, 8, 8, 4)
+        v.setContentsMargins(10, 10, 10, 8)
+        v.setSpacing(10)
         v.addWidget(top_w)
         v.addWidget(self.tabs)
         self.setCentralWidget(central)
@@ -281,7 +285,10 @@ class MainWindow(QMainWindow):
     def _build_log_tab(self) -> QWidget:
         w = QWidget()
         v = QVBoxLayout(w)
+        v.setContentsMargins(14, 14, 14, 14)
+        v.setSpacing(10)
         bar = QHBoxLayout()
+        bar.setSpacing(8)
         bar.addStretch()
         clear = QPushButton(tr("🧹 Limpiar"))
         clear.clicked.connect(lambda: self.log_panel.clear())
