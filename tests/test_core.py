@@ -543,6 +543,71 @@ def test_installer_root_files_end_to_end():
     print("OK  installer: Engine Fixes parte 2 -> raíz (install/activar/desactivar/desinstalar)")
 
 
+def test_oauth_pkce_and_flow():
+    import base64 as _b64, hashlib as _hl
+    from nexus_mod_installer import oauth
+    # PKCE: challenge = base64url(SHA256(verifier)), método S256
+    v, c = oauth.generate_pkce()
+    assert 43 <= len(v) <= 128
+    expect = _b64.urlsafe_b64encode(_hl.sha256(v.encode()).digest()).rstrip(b"=").decode()
+    assert c == expect
+    # Sin CLIENT_ID/REDIRECT_URI -> error claro (no se puede iniciar el flujo)
+    try:
+        oauth.LoginFlow(); assert False, "debería exigir configuración"
+    except oauth.OAuthNotConfigured:
+        pass
+    # Configurado (monkeypatch de los huecos del registro)
+    oauth.CLIENT_ID, oauth.REDIRECT_URI = "abc123", "https://127.0.0.1:5599/callback"
+    try:
+        flow = oauth.LoginFlow()
+        url = flow.authorize_url()
+        assert url.startswith("https://users.nexusmods.com/oauth/authorize?")
+        for needle in ("response_type=code", "client_id=abc123", "code_challenge_method=S256",
+                       "code_challenge=", "state="):
+            assert needle in url, needle
+        # is_redirect detecta nuestra redirect_uri y nada más
+        assert oauth.LoginFlow.is_redirect("https://127.0.0.1:5599/callback?code=X&state=Y")
+        assert not oauth.LoginFlow.is_redirect("https://users.nexusmods.com/oauth/authorize")
+        # parse_code valida state y devuelve el code
+        assert flow.parse_code(f"https://127.0.0.1:5599/callback?code=THECODE&state={flow.state}") == "THECODE"
+        for bad in (f"https://127.0.0.1:5599/callback?code=X&state=wrong",
+                    f"https://127.0.0.1:5599/callback?error=access_denied&state={flow.state}"):
+            try:
+                flow.parse_code(bad); assert False, "debería fallar"
+            except oauth.OAuthError:
+                pass
+    finally:
+        oauth.CLIENT_ID, oauth.REDIRECT_URI = "", ""
+    print("OK  oauth PKCE + URL de autorización + parseo de redirect (state/error)")
+
+
+def test_oauth_token_store():
+    import os, time as _t
+    from nexus_mod_installer import oauth
+    prev = os.environ.get("APPDATA")
+    with tempfile.TemporaryDirectory() as d:
+        os.environ["APPDATA"] = d
+        try:
+            tok = oauth.OAuthToken.from_response(
+                {"access_token": "AT", "refresh_token": "RT", "expires_in": 3600,
+                 "token_type": "Bearer", "scope": "public"})
+            assert not tok.is_expired
+            assert tok.authorization_header()["Authorization"] == "Bearer AT"
+            store = oauth.TokenStore()
+            store.save(tok)
+            loaded = store.load()
+            assert loaded.access_token == "AT" and loaded.refresh_token == "RT"
+            assert oauth.OAuthToken(access_token="x", expires_at=_t.time() - 10).is_expired
+            store.clear()
+            assert store.load() is None
+        finally:
+            if prev is not None:
+                os.environ["APPDATA"] = prev
+            else:
+                os.environ.pop("APPDATA", None)
+    print("OK  oauth TokenStore (guardar/cargar + caducidad)")
+
+
 def main():
     tests = [v for k, v in globals().items() if k.startswith("test_")]
     for t in tests:
