@@ -17,20 +17,38 @@ class _Card(QFrame):
     def __init__(self, title: str):
         super().__init__()
         self.setProperty("role", "card")
+        self.setMinimumHeight(84)
         lay = QVBoxLayout(self)
-        t = QLabel(title)
-        t.setProperty("role", "dim")
-        self.value = QLabel("…")
-        self.value.setStyleSheet("font-size:18px; font-weight:bold;")
-        self.value.setWordWrap(True)
+        lay.setContentsMargins(16, 13, 16, 13)
+        lay.setSpacing(9)
+        t = QLabel(title.upper())
+        t.setProperty("role", "label")
         lay.addWidget(t)
-        lay.addWidget(self.value)
 
-    def set(self, text: str, color: str | None = None) -> None:
+        row = QHBoxLayout()
+        row.setSpacing(9)
+        self.dot = QLabel()
+        self.dot.setFixedSize(9, 9)
+        self._dot(theme.TEXT_DIM)
+        self.value = QLabel("…")
+        self.value.setProperty("role", "value")
+        self.value.setWordWrap(True)
+        row.addWidget(self.dot, 0, Qt.AlignmentFlag.AlignVCenter)
+        row.addWidget(self.value, 1)
+        lay.addLayout(row)
+
+    def _dot(self, color: str) -> None:
+        self.dot.setStyleSheet(f"background:{color}; border-radius:4px;")
+
+    def set(self, text: str, color: str | None = None, dot: str | None = None) -> None:
         self.value.setText(text)
-        self.value.setStyleSheet(
-            f"font-size:18px; font-weight:bold; color:{color or theme.TEXT};"
-        )
+        self.value.setStyleSheet(f"font-size:18px; font-weight:bold; color:{color or theme.TEXT};")
+        d = dot or color
+        if d:
+            self._dot(d)
+            self.dot.show()
+        else:
+            self.dot.hide()
 
 
 class HomePanel(QWidget):
@@ -44,9 +62,12 @@ class HomePanel(QWidget):
         self.config = manager.config
 
         root = QVBoxLayout(self)
+        root.setContentsMargins(20, 18, 20, 18)
+        root.setSpacing(16)
 
         self.header = QLabel("BMI — Bethesda Mod Installer")
         self.header.setProperty("role", "title")
+        self.header.setStyleSheet("font-size:21px; font-weight:bold;")
         root.addWidget(self.header)
 
         # Aviso de configuración inicial
@@ -60,6 +81,7 @@ class HomePanel(QWidget):
 
         # Tarjetas
         grid = QGridLayout()
+        grid.setSpacing(14)
         self.card_account = _Card(tr("Cuenta Nexus"))
         self.card_data = _Card(tr("Carpeta de datos del juego"))
         self.card_skse = _Card(tr("Script Extender"))
@@ -73,6 +95,7 @@ class HomePanel(QWidget):
 
         # Acciones rápidas
         actions = QHBoxLayout()
+        actions.setSpacing(10)
         explore = QPushButton(tr("🔎 Explorar Nexus"))
         explore.setProperty("variant", "primary")
         explore.clicked.connect(self.go_explore)
@@ -105,6 +128,7 @@ class HomePanel(QWidget):
             self.card_account.set(
                 f"{api.user_name}\n({'PREMIUM' if premium else tr('Gratis')})",
                 theme.ACCENT if premium else theme.TEXT,
+                dot=theme.ACCENT if premium else theme.SUCCESS,
             )
         elif cfg.api_key:
             self.card_account.set(tr("API key sin validar"), theme.TEXT_DIM)

@@ -21,6 +21,7 @@ INFO = "#4a90d9"
 
 STYLESHEET = f"""
 * {{
+    font-family: "Segoe UI", "Inter", system-ui, sans-serif;
     font-size: 13px;
     color: {TEXT};
 }}
@@ -28,15 +29,18 @@ QWidget {{ background: {BG}; }}
 QMainWindow, QDialog {{ background: {BG}; }}
 
 QLabel {{ background: transparent; }}
-QLabel[role="title"] {{ font-size: 16px; font-weight: bold; }}
+QLabel[role="title"] {{ font-size: 17px; font-weight: bold; }}
 QLabel[role="dim"] {{ color: {TEXT_DIM}; }}
+QLabel[role="label"] {{ color: {TEXT_DIM}; font-size: 11px; font-weight: bold; }}
+QLabel[role="value"] {{ font-size: 18px; font-weight: bold; }}
+QLabel[role="h2"] {{ font-size: 14px; font-weight: bold; }}
 
 /* ---- Botones ---- */
 QPushButton {{
     background: {PANEL};
     border: 1px solid {BORDER};
-    border-radius: 6px;
-    padding: 6px 12px;
+    border-radius: 8px;
+    padding: 7px 16px;
 }}
 QPushButton:hover {{ background: {PANEL_HI}; border-color: {ACCENT}; }}
 QPushButton:pressed {{ background: {BG_DARK}; }}
@@ -47,8 +51,10 @@ QPushButton[variant="primary"] {{
 }}
 QPushButton[variant="primary"]:hover {{ background: {ACCENT_HI}; border-color: {ACCENT_HI}; }}
 
-QPushButton[variant="success"] {{ color: {SUCCESS}; font-weight: bold; }}
-QPushButton[variant="success"]:hover {{ border-color: {SUCCESS}; }}
+QPushButton[variant="success"] {{
+    background: {SUCCESS}; border-color: {SUCCESS}; color: #0b2a12; font-weight: bold;
+}}
+QPushButton[variant="success"]:hover {{ background: #54c768; border-color: #54c768; }}
 
 QPushButton[variant="danger"] {{ color: {DANGER}; }}
 QPushButton[variant="danger"]:hover {{ border-color: {DANGER}; background: #3a2020; }}
@@ -61,8 +67,8 @@ QPushButton[variant="toggle"]:checked {{
 QLineEdit, QPlainTextEdit, QTextEdit, QSpinBox, QComboBox {{
     background: {BG_DARK};
     border: 1px solid {BORDER};
-    border-radius: 6px;
-    padding: 5px 8px;
+    border-radius: 8px;
+    padding: 6px 10px;
     selection-background-color: {ACCENT};
     selection-color: #1a1207;
 }}
@@ -135,7 +141,7 @@ QGroupBox::title {{ subcontrol-origin: margin; left: 12px; padding: 0 5px; color
 
 /* ---- Tarjetas (frames con property card) ---- */
 QFrame[role="card"] {{
-    background: {PANEL}; border: 1px solid {BORDER}; border-radius: 10px;
+    background: {PANEL}; border: 1px solid {BORDER}; border-radius: 12px;
 }}
 
 /* ---- Barras de desplazamiento ---- */
