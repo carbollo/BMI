@@ -12,6 +12,10 @@ build_nuitka_onedir/
 build_exe.bat
 pyarmor.bug.log
 
+# === Scripts de generación de assets (no forman parte de la app) ===
+make_icon.py
+make_logo.py
+
 # === Caché y artefactos de Python ===
 __pycache__/
 *.py[cod]
