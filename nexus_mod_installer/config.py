@@ -76,6 +76,9 @@ class AppConfig:
     language: str = "es"
     # Rutas guardadas por juego: {dominio: {"data":..., "plugins":..., "skse":...}}
     game_paths: dict = field(default_factory=dict)
+    # Herramientas externas que se pueden lanzar (Nemesis, xEdit, DynDOLOD, Synthesis…).
+    # Cada una: {"name":..., "path":..., "args":..., "cwd":...}
+    tools: list = field(default_factory=list)
 
     # ------------------------------------------------------------------
     @staticmethod

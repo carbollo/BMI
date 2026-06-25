@@ -126,6 +126,9 @@ def _draw(name: str, p: QPainter) -> None:
         _poly(p, [(4, 9), (8, 9), (12, 5), (12, 19), (8, 15), (4, 15)], close=True)
         p.drawArc(QRectF(10, 7, 8, 10), -60 * 16, 120 * 16)
         p.drawArc(QRectF(10, 4, 13, 16), -55 * 16, 110 * 16)
+    elif name in ("wrench", "tools"):
+        p.drawArc(QRectF(3, 3, 9, 9), 20 * 16, 300 * 16)   # cabeza de llave (C abierta)
+        p.drawLine(QPointF(10, 11), QPointF(19, 20))        # mango diagonal
     elif name == "coffee":
         p.drawLine(QPointF(4, 8), QPointF(16, 8))
         _poly(p, [(5, 8), (6, 18), (14, 18), (15, 8)])

@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QTabWidget, QLineEdit,
     QPushButton, QTableWidget, QTableWidgetItem, QProgressBar, QPlainTextEdit,
     QLabel, QMessageBox, QHeaderView, QAbstractItemView, QFileDialog, QComboBox,
-    QDialog,
+    QDialog, QMenu,
 )
 from PySide6.QtGui import QColor
 
@@ -236,6 +236,12 @@ class MainWindow(QMainWindow):
         self.play_btn.setProperty("variant", "success")
         self.play_btn.clicked.connect(self._launch_game)
         self._refresh_play_btn()
+        self.tools_btn = QPushButton(tr("Herramientas"))
+        self.tools_btn.setIcon(icons.icon("wrench", theme.TEXT))
+        self.tools_btn.setToolTip(tr("Lanzar Nemesis, xEdit, DynDOLOD, Synthesis…"))
+        self._tools_menu = QMenu(self.tools_btn)
+        self._tools_menu.aboutToShow.connect(self._build_tools_menu)
+        self.tools_btn.setMenu(self._tools_menu)
         settings_btn = QPushButton(tr("Ajustes"))
         settings_btn.setIcon(icons.icon("settings", theme.TEXT))
         settings_btn.clicked.connect(self._open_settings)
@@ -253,6 +259,7 @@ class MainWindow(QMainWindow):
         top.addWidget(search_btn)
         top.addSpacing(12)
         top.addWidget(self.play_btn)
+        top.addWidget(self.tools_btn)
         top.addWidget(settings_btn)
         top_w = QWidget(); top_w.setLayout(top)
         top_w.setProperty("role", "toolbar")
@@ -657,6 +664,28 @@ class MainWindow(QMainWindow):
         if term:
             self.webview.search(term)
             self.tabs.setCurrentWidget(self.explore_tab)
+
+    def _build_tools_menu(self) -> None:
+        self._tools_menu.clear()
+        tools = self.config.tools or []
+        for t in tools:
+            act = self._tools_menu.addAction(icons.icon("wrench", theme.TEXT), t.get("name", ""))
+            act.triggered.connect(lambda _=False, tool=t: self._launch_tool(tool))
+        if tools:
+            self._tools_menu.addSeparator()
+        self._tools_menu.addAction(icons.icon("settings", theme.TEXT),
+                                   tr("Gestionar herramientas…"), self._open_tools_dialog)
+
+    def _launch_tool(self, tool) -> None:
+        try:
+            launcher.launch_tool(tool.get("path", ""), tool.get("args", ""), tool.get("cwd", ""))
+            self._status(tr("Lanzado: {n}").format(n=tool.get("name", "")))
+        except launcher.GameLaunchError as e:
+            QMessageBox.warning(self, tr("Herramientas"), str(e))
+
+    def _open_tools_dialog(self) -> None:
+        from .tools_dialog import ToolsDialog
+        ToolsDialog(self.config, self).exec()
 
     def _open_settings(self) -> None:
         dlg = SettingsDialog(self.config, self)

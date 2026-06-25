@@ -234,7 +234,9 @@ class ModsPanel(QWidget):
         mod, is_ext = ents[0]
         if not is_ext:
             mod = self.manager.store.get(mod.mod_id) or mod
-        ModDetailsDialog(mod, self, store=self.manager.store).exec()
+        ModDetailsDialog(mod, self, store=self.manager.store,
+                         installer=self.manager.installer).exec()
+        self.request_refresh()
 
     # ==================================================================
     # Pestaña: Orden de carga (todos los plugins)

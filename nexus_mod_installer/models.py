@@ -199,6 +199,7 @@ class InstalledMod:
     size_bytes: int = 0                # tamaño total de los archivos del mod
     picture_url: str = ""              # miniatura del mod en Nexus (si se conoce)
     notes: str = ""                    # notas libres del usuario (configs, detalles…)
+    hidden_files: list[str] = field(default_factory=list)  # archivos ocultos (no desplegados)
 
     def to_dict(self) -> dict:
         return {
@@ -215,6 +216,7 @@ class InstalledMod:
             "size_bytes": self.size_bytes,
             "picture_url": self.picture_url,
             "notes": self.notes,
+            "hidden_files": self.hidden_files,
         }
 
     @classmethod
@@ -233,4 +235,5 @@ class InstalledMod:
             size_bytes=int(d.get("size_bytes", 0) or 0),
             picture_url=d.get("picture_url", "") or "",
             notes=d.get("notes", "") or "",
+            hidden_files=list(d.get("hidden_files", [])),
         )

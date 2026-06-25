@@ -177,10 +177,17 @@ class Installer:
         log(f"Desplegando a {self.config.game_data_path} ({self.config.deploy_method})...")
         deployed = deploy.deploy(
             mod.install_dir, self.config.game_data_path, self.config.deploy_method,
-            exclude=[src for src, _ in root_files],
+            exclude=self._exclude_for(mod, root_files),
         )
         root_deployed = self._deploy_root(root_files, log)
         return deployed, root_deployed
+
+    def _exclude_for(self, mod: InstalledMod, root_files) -> list[str]:
+        """Rutas de origen a NO desplegar: archivos de raíz + archivos ocultos del mod."""
+        excl = [src for src, _ in root_files]
+        base = Path(mod.install_dir)
+        excl += [str(base / h) for h in (mod.hidden_files or [])]
+        return excl
 
     def _game_root(self):
         """Carpeta raíz del juego (junto al .exe), o None si no se puede determinar."""
@@ -237,7 +244,7 @@ class Installer:
                 root_files = self._root_files_for(mod)
                 mod.deployed_files = deploy.deploy(
                     mod.install_dir, self.config.game_data_path, self.config.deploy_method,
-                    exclude=[src for src, _ in root_files],
+                    exclude=self._exclude_for(mod, root_files),
                 )
                 mod.deployed_root_files = self._deploy_root(root_files, log)
                 # Re-desplegar lo convierte en el último escritor en disco: actualiza la
@@ -258,6 +265,40 @@ class Installer:
                 deploy.disable_plugins(self.config.plugins_txt_path, mod.plugins)
         mod.enabled = enabled
         self.store.save()
+        return True
+
+    def set_hidden_files(self, mod_id: int, hidden, log=lambda m: None) -> bool:
+        """Oculta/muestra archivos de un mod (rutas relativas a Data). Re-despliega el mod
+        excluyendo los ocultos. Devuelve True si cambió algo."""
+        mod = self.store.get(mod_id)
+        if not mod:
+            return False
+        new_hidden = sorted({str(h).replace("\\", "/") for h in hidden})
+        if new_hidden == sorted(mod.hidden_files or []):
+            return False
+        mod.hidden_files = new_hidden
+        if mod.enabled and self.config.game_data_path:
+            if mod.deployed_files:
+                deploy.undeploy(mod.deployed_files, self.config.game_data_path)
+            root_files = self._root_files_for(mod)
+            mod.deployed_files = deploy.deploy(
+                mod.install_dir, self.config.game_data_path, self.config.deploy_method,
+                exclude=self._exclude_for(mod, root_files),
+            )
+            log(f"{mod.name}: {len(new_hidden)} archivo(s) oculto(s); re-desplegado.")
+        self.store.save()
+        return True
+
+    def redeploy_file(self, mod_id: int, rel: str) -> bool:
+        """Re-despliega un único archivo del mod a Data (tras editar un .ini)."""
+        mod = self.store.get(mod_id)
+        if not mod or not mod.enabled or not self.config.game_data_path:
+            return False
+        src = Path(mod.install_dir) / rel
+        if not src.is_file():
+            return False
+        deploy._link_or_copy(src, Path(self.config.game_data_path) / rel,
+                             self.config.deploy_method)
         return True
 
     def uninstall(self, mod_id: int, log=lambda m: None) -> bool:

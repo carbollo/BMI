@@ -81,3 +81,70 @@ def launch(config: AppConfig, prefer_skse: bool = True) -> Path:
     except OSError as e:
         raise GameLaunchError(f"No se pudo lanzar {exe.name}: {e}") from e
     return exe
+
+
+# ---------------------------------------------------------------------------
+# Herramientas externas (Nemesis, xEdit, DynDOLOD, Synthesis…)
+# ---------------------------------------------------------------------------
+# Nombre amigable -> posibles nombres de ejecutable (para autodetección).
+KNOWN_TOOLS = [
+    ("xEdit / SSEEdit", ["SSEEdit.exe", "xEdit.exe", "FO4Edit.exe", "TES5Edit.exe"]),
+    ("Nemesis", ["Nemesis Unlimited Behavior Engine.exe", "NemesisUnlimitedBehaviorEngine.exe"]),
+    ("FNIS", ["GenerateFNISforUsers.exe"]),
+    ("DynDOLOD", ["DynDOLODx64.exe", "DynDOLOD.exe"]),
+    ("Synthesis", ["Synthesis.exe"]),
+    ("BodySlide", ["BodySlide x64.exe", "BodySlide.exe"]),
+    ("Wrye Bash", ["Wrye Bash.exe"]),
+    ("LOOT", ["LOOT.exe"]),
+]
+
+
+def launch_tool(path: str, args: str = "", cwd: str = "") -> Path:
+    """Lanza una herramienta externa. ``args`` se parte estilo línea de comandos."""
+    exe = Path(path)
+    if not exe.is_file():
+        raise GameLaunchError(f"No existe el ejecutable: {path}")
+    cmd = [str(exe)]
+    if args.strip():
+        import shlex
+        cmd += shlex.split(args, posix=False)
+    workdir = cwd if (cwd and Path(cwd).is_dir()) else str(exe.parent)
+    try:
+        subprocess.Popen(cmd, cwd=workdir, creationflags=_NO_WINDOW)
+    except OSError as e:
+        raise GameLaunchError(f"No se pudo lanzar {exe.name}: {e}") from e
+    return exe
+
+
+def detect_tools(config: AppConfig) -> list[dict]:
+    """Busca herramientas conocidas en la carpeta del juego (y subcarpetas habituales).
+    Devuelve [{name, path, args, cwd}] de las encontradas (best-effort)."""
+    found: list[dict] = []
+    seen: set[str] = set()
+    roots: list[Path] = []
+    gdir = game_dir(config)
+    if gdir:
+        roots.append(gdir)
+        for sub in ("Tools", "Data", "Data/SKSE", "modding"):
+            p = gdir / sub
+            if p.is_dir():
+                roots.append(p)
+    for root in roots:
+        for name, exes in KNOWN_TOOLS:
+            if name in seen:
+                continue
+            for exe_name in exes:
+                # Búsqueda superficial: en la carpeta y un nivel de subcarpetas.
+                for cand in (root / exe_name, *(d / exe_name for d in root.iterdir()
+                                                if d.is_dir())):
+                    try:
+                        if cand.is_file():
+                            found.append({"name": name, "path": str(cand), "args": "",
+                                          "cwd": str(cand.parent)})
+                            seen.add(name)
+                            break
+                    except OSError:
+                        continue
+                if name in seen:
+                    break
+    return found
