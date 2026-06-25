@@ -210,6 +210,9 @@ class MainWindow(QMainWindow):
         batch_btn = QPushButton(tr("➕ Varios…"))
         batch_btn.setToolTip(tr("Pegar varias URLs/ids a la vez y descargarlas en cola"))
         batch_btn.clicked.connect(self._open_batch_dialog)
+        load_btn = QPushButton(tr("📂 Cargar mod"))
+        load_btn.setToolTip(tr("Instalar un mod desde un archivo .zip/.7z/.rar de tu PC"))
+        load_btn.clicked.connect(self._load_mod_from_file)
 
         self.search_edit = QLineEdit()
         self.search_edit.setPlaceholderText(tr("🔎 Buscar mods en Nexus…"))
@@ -231,6 +234,7 @@ class MainWindow(QMainWindow):
         top.addWidget(self.url_edit, 3)
         top.addWidget(add_btn)
         top.addWidget(batch_btn)
+        top.addWidget(load_btn)
         top.addSpacing(12)
         top.addWidget(self.search_edit, 2)
         top.addWidget(search_btn)
@@ -349,6 +353,23 @@ class MainWindow(QMainWindow):
         else:
             self.manager.enqueue_local(path)
         self.tabs.setCurrentWidget(self.downloads_panel)
+
+    def _load_mod_from_file(self) -> None:
+        """Cargar e instalar uno o varios mods desde archivos comprimidos del PC.
+
+        Reutiliza el mismo pipeline que las descargas (extraer → FOMOD → desplegar a Data /
+        carpeta raíz → registrar para poder desactivar/desinstalar). No requiere conexión
+        ni cuenta de Nexus: instala lo que el usuario elija de su disco."""
+        paths, _ = QFileDialog.getOpenFileNames(
+            self, tr("Cargar mod desde archivo"), "",
+            tr("Archivos de mod (*.zip *.7z *.rar);;Todos los archivos (*)"),
+        )
+        if not paths:
+            return
+        for p in paths:
+            self.manager.enqueue_local(p)
+        self.tabs.setCurrentWidget(self.downloads_panel)
+        self._status(tr("Cargando {n} archivo(s) para instalar…").format(n=len(paths)))
 
     def _on_needs_click(self, task: DownloadTask) -> None:
         # Cuenta gratuita: abrir la página SOLO del mod principal (para pulsar 'Mod Manager
