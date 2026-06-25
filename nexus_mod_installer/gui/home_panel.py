@@ -11,6 +11,8 @@ from PySide6.QtWidgets import (
 from .. import launcher, scanner, nxm
 from ..i18n import tr
 from . import theme
+from . import icons
+from . import effects
 
 
 class _Card(QFrame):
@@ -36,6 +38,7 @@ class _Card(QFrame):
         row.addWidget(self.dot, 0, Qt.AlignmentFlag.AlignVCenter)
         row.addWidget(self.value, 1)
         lay.addLayout(row)
+        effects.add_shadow(self, blur=18, dy=3, alpha=120)
 
     def _dot(self, color: str) -> None:
         self.dot.setStyleSheet(f"background:{color}; border-radius:4px;")
@@ -96,21 +99,56 @@ class HomePanel(QWidget):
         # Acciones rápidas
         actions = QHBoxLayout()
         actions.setSpacing(10)
-        explore = QPushButton(tr("🔎 Explorar Nexus"))
+        explore = QPushButton(tr("Explorar Nexus"))
+        explore.setIcon(icons.icon("search", "#1a1207"))
         explore.setProperty("variant", "primary")
         explore.clicked.connect(self.go_explore)
-        play = QPushButton(tr("▶ Jugar (SKSE64)"))
+        play = QPushButton(tr("Jugar (SKSE64)"))
+        play.setIcon(icons.icon("play", "#0b2a12"))
         play.setProperty("variant", "success")
         play.clicked.connect(self.launch_game)
-        settings = QPushButton(tr("⚙ Ajustes"))
+        settings = QPushButton(tr("Ajustes"))
+        settings.setIcon(icons.icon("settings", theme.TEXT))
         settings.clicked.connect(self.open_settings)
-        scan = QPushButton(tr("🔄 Actualizar estado"))
+        scan = QPushButton(tr("Actualizar estado"))
+        scan.setIcon(icons.icon("refresh", theme.TEXT))
         scan.clicked.connect(self.refresh)
         for b in (explore, play, settings, scan):
             actions.addWidget(b)
         actions.addStretch()
         root.addLayout(actions)
         root.addStretch()
+
+        # Llamada a la acción para donaciones (Buy Me a Coffee).
+        root.addWidget(self._build_donate_bar())
+
+    # ------------------------------------------------------------------
+    def _build_donate_bar(self) -> QFrame:
+        bar = QFrame()
+        bar.setProperty("role", "card")
+        lay = QHBoxLayout(bar)
+        lay.setContentsMargins(16, 12, 16, 12)
+        lay.setSpacing(12)
+        msg = QLabel(tr("¿Te resulta útil BMI? Es gratis y siempre lo será. "
+                        "Si quieres, puedes apoyar su desarrollo:"))
+        msg.setWordWrap(True)
+        msg.setProperty("role", "dim")
+        self.donate_btn = QPushButton(tr("  Invítame a un café"))
+        self.donate_btn.setIcon(icons.icon("coffee", "#000000"))
+        self.donate_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.donate_btn.setStyleSheet(
+            "background:#FFDD00; color:#000000; border:1px solid #000000;"
+            "border-radius:8px; padding:8px 18px; font-weight:bold;"
+        )
+        self.donate_btn.clicked.connect(self._open_donate)
+        lay.addWidget(msg, 1)
+        lay.addWidget(self.donate_btn, 0, Qt.AlignmentFlag.AlignRight)
+        effects.add_shadow(bar, blur=18, dy=3, alpha=120)
+        return bar
+
+    def _open_donate(self) -> None:
+        from .donate_dialog import DonateDialog
+        DonateDialog(self).exec()
 
         self.refresh()
 

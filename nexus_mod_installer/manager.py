@@ -516,10 +516,11 @@ class DownloadManager(QObject):
     # ------------------------------------------------------------------
     def _fill_metadata(self, task: DownloadTask) -> None:
         try:
-            if not task.mod_name:
+            if not task.mod_name or not task.picture_url:
                 mod = self.api.get_mod(task.game_domain, task.mod_id)
-                task.mod_name = mod.name
+                task.mod_name = task.mod_name or mod.name
                 task.version = task.version or mod.version
+                task.picture_url = task.picture_url or getattr(mod, "picture_url", "")
         except NexusApiError:
             pass
         try:

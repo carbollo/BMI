@@ -186,8 +186,41 @@ STATUS_COLORS = {
 }
 
 
+def make_splash_pixmap(w: int = 460, h: int = 260) -> QPixmap:
+    """Pantalla de carga: tarjeta oscura con el logo BMI y el nombre de la app."""
+    from . import _assets
+    pix = QPixmap(w, h)
+    pix.fill(Qt.GlobalColor.transparent)
+    p = QPainter(pix)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    p.setBrush(QBrush(QColor(BG_DARK)))
+    p.setPen(QPen(QColor(ACCENT), 1))
+    p.drawRoundedRect(QRectF(1, 1, w - 2, h - 2), 16, 16)
+    logo = _assets.load_logo_pixmap(96)
+    if not logo.isNull():
+        p.drawPixmap(int((w - logo.width()) / 2), 34, logo)
+    p.setPen(QColor(TEXT))
+    p.setFont(QFont("Segoe UI", 20, QFont.Weight.Bold))
+    p.drawText(QRectF(0, 138, w, 34), Qt.AlignmentFlag.AlignHCenter, "BMI")
+    p.setPen(QColor(TEXT_DIM))
+    p.setFont(QFont("Segoe UI", 10))
+    p.drawText(QRectF(0, 176, w, 22), Qt.AlignmentFlag.AlignHCenter, "Bethesda Mod Installer")
+    p.setPen(QColor(ACCENT))
+    p.setFont(QFont("Segoe UI", 9))
+    p.drawText(QRectF(0, 212, w, 20), Qt.AlignmentFlag.AlignHCenter, "Cargando…")
+    p.end()
+    return pix
+
+
 def make_app_icon(size: int = 256) -> QIcon:
-    """Dibuja un icono simple: cuadrado oscuro redondeado + flecha de descarga naranja."""
+    """Icono de la app: usa el logo BMI embebido; si falla, dibuja uno de respaldo."""
+    try:
+        from . import _assets
+        icon = _assets.make_logo_icon()
+        if not icon.isNull():
+            return icon
+    except Exception:
+        pass
     pix = QPixmap(size, size)
     pix.fill(Qt.GlobalColor.transparent)
     p = QPainter(pix)

@@ -154,6 +154,7 @@ class Installer:
             plugins=plugins,
             installed_at=time.time(),
             size_bytes=_dir_size(data_root),
+            picture_url=getattr(task, "picture_url", "") or "",
         )
 
         # 4) Desplegar a Data (+ a la carpeta raíz del juego si procede)

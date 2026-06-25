@@ -23,6 +23,9 @@ from .fomod_dialog import FomodDialog
 from .mods_panel import ModsPanel
 from .home_panel import HomePanel
 from . import theme
+from . import icons
+from . import effects
+from . import toast
 
 
 # ===========================================================================
@@ -42,13 +45,16 @@ class DownloadsPanel(QWidget):
         self.count_lbl.setProperty("role", "dim")
         bar.addWidget(self.count_lbl)
         bar.addStretch()
-        retry_sel = QPushButton(tr("↻ Reintentar selección"))
+        retry_sel = QPushButton(tr("Reintentar selección"))
+        retry_sel.setIcon(icons.icon("refresh", theme.TEXT))
         retry_sel.setToolTip(tr("Reintenta las tareas seleccionadas que estén en error o pendientes de clic"))
         retry_sel.clicked.connect(self._retry_selected)
-        remove_sel = QPushButton(tr("✖ Quitar selección"))
+        remove_sel = QPushButton(tr("Quitar selección"))
+        remove_sel.setIcon(icons.icon("x", theme.TEXT))
         remove_sel.setToolTip(tr("Quita de la cola las tareas seleccionadas (no las que se descargan ahora)"))
         remove_sel.clicked.connect(self._remove_selected)
-        clear = QPushButton(tr("🧹 Limpiar completadas"))
+        clear = QPushButton(tr("Limpiar completadas"))
+        clear.setIcon(icons.icon("trash", theme.TEXT))
         clear.clicked.connect(self._clear_completed)
         for b in (retry_sel, remove_sel, clear):
             bar.addWidget(b)
@@ -203,28 +209,35 @@ class MainWindow(QMainWindow):
         # --- Barra superior ---
         self.url_edit = QLineEdit()
         self.url_edit.setPlaceholderText(tr("Pega un enlace nxm://, URL de un mod o de una colección…"))
+        self.url_edit.setMinimumWidth(220)
         self.url_edit.returnPressed.connect(self._add_from_url)
-        add_btn = QPushButton(tr("⬇ Añadir / Descargar"))
+        add_btn = QPushButton(tr("Añadir / Descargar"))
+        add_btn.setIcon(icons.icon("download", "#1a1207"))
         add_btn.setProperty("variant", "primary")
         add_btn.clicked.connect(self._add_from_url)
-        batch_btn = QPushButton(tr("➕ Varios…"))
+        batch_btn = QPushButton(tr("Varios…"))
+        batch_btn.setIcon(icons.icon("plus", theme.TEXT))
         batch_btn.setToolTip(tr("Pegar varias URLs/ids a la vez y descargarlas en cola"))
         batch_btn.clicked.connect(self._open_batch_dialog)
-        load_btn = QPushButton(tr("📂 Cargar mod"))
+        load_btn = QPushButton(tr("Cargar mod"))
+        load_btn.setIcon(icons.icon("folder", theme.TEXT))
         load_btn.setToolTip(tr("Instalar un mod desde un archivo .zip/.7z/.rar de tu PC"))
         load_btn.clicked.connect(self._load_mod_from_file)
 
         self.search_edit = QLineEdit()
-        self.search_edit.setPlaceholderText(tr("🔎 Buscar mods en Nexus…"))
+        self.search_edit.setPlaceholderText(tr("Buscar mods en Nexus…"))
+        self.search_edit.setMinimumWidth(170)
         self.search_edit.returnPressed.connect(self._do_search)
         search_btn = QPushButton(tr("Buscar"))
+        search_btn.setIcon(icons.icon("search", theme.TEXT))
         search_btn.clicked.connect(self._do_search)
 
         self.play_btn = QPushButton()
         self.play_btn.setProperty("variant", "success")
         self.play_btn.clicked.connect(self._launch_game)
         self._refresh_play_btn()
-        settings_btn = QPushButton(tr("⚙ Ajustes"))
+        settings_btn = QPushButton(tr("Ajustes"))
+        settings_btn.setIcon(icons.icon("settings", theme.TEXT))
         settings_btn.clicked.connect(self._open_settings)
 
         top = QHBoxLayout()
@@ -243,6 +256,7 @@ class MainWindow(QMainWindow):
         top.addWidget(settings_btn)
         top_w = QWidget(); top_w.setLayout(top)
         top_w.setProperty("role", "toolbar")
+        effects.add_shadow(top_w, blur=20, dy=3, alpha=110)
 
         # --- Navegador ---
         self.webview = NexusWebView(config.downloads_dir, config.game().domain)
@@ -261,11 +275,12 @@ class MainWindow(QMainWindow):
         self.log_tab = self._build_log_tab()
 
         self.tabs = QTabWidget()
-        self.tabs.addTab(self.home_panel, tr("🏠 Inicio"))
-        self.tabs.addTab(self.explore_tab, tr("🔎 Explorar Nexus"))
-        self.tabs.addTab(self.downloads_panel, tr("⬇ Descargas"))
-        self.tabs.addTab(self.mods_panel, tr("📦 Mods"))
-        self.tabs.addTab(self.log_tab, tr("📜 Registro"))
+        self.tabs.addTab(self.home_panel, icons.icon("home", theme.TEXT, 16), tr("Inicio"))
+        self.tabs.addTab(self.explore_tab, icons.icon("search", theme.TEXT, 16), tr("Explorar Nexus"))
+        self.tabs.addTab(self.downloads_panel, icons.icon("download", theme.TEXT, 16), tr("Descargas"))
+        self.tabs.addTab(self.mods_panel, icons.icon("package", theme.TEXT, 16), tr("Mods"))
+        self.tabs.addTab(self.log_tab, icons.icon("log", theme.TEXT, 16), tr("Registro"))
+        self.tabs.currentChanged.connect(self._on_tab_fade)
 
         central = QWidget()
         v = QVBoxLayout(central)
@@ -278,10 +293,14 @@ class MainWindow(QMainWindow):
         self.status_label = QLabel(tr("Listo."))
         self.statusBar().addWidget(self.status_label)
 
+        self.toasts = toast.ToastManager(self)
+        self._toasted: set[int] = set()
         manager.log.connect(self._on_log)
         manager.needs_click.connect(self._on_needs_click)
         manager.task_updated.connect(self._maybe_refresh_views)
         manager.fomod_requested.connect(self._on_fomod_requested)
+        manager.task_added.connect(lambda _t: self._update_activity_badge())
+        manager.tasks_changed.connect(self._update_activity_badge)
 
         self._refresh_title()
 
@@ -294,9 +313,11 @@ class MainWindow(QMainWindow):
         bar = QHBoxLayout()
         bar.setSpacing(8)
         bar.addStretch()
-        clear = QPushButton(tr("🧹 Limpiar"))
+        clear = QPushButton(tr("Limpiar"))
+        clear.setIcon(icons.icon("trash", theme.TEXT))
         clear.clicked.connect(lambda: self.log_panel.clear())
-        save = QPushButton(tr("💾 Guardar"))
+        save = QPushButton(tr("Guardar"))
+        save.setIcon(icons.icon("save", theme.TEXT))
         save.clicked.connect(self._save_log)
         bar.addWidget(clear); bar.addWidget(save)
         v.addLayout(bar)
@@ -319,15 +340,40 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------------
     def _maybe_refresh_views(self, task: DownloadTask) -> None:
-        if task.status == TaskStatus.DONE and not self._views_refresh_scheduled:
-            self._views_refresh_scheduled = True
-            QTimer.singleShot(1000, self._do_views_refresh)   # coalesce ráfagas de instalación
+        self._update_activity_badge()
+        if task.status == TaskStatus.DONE:
+            if id(task) not in self._toasted:
+                self._toasted.add(id(task))
+                self.toasts.show(tr("Instalado: {name}").format(
+                    name=task.mod_name or task.label), "success")
+            if not self._views_refresh_scheduled:
+                self._views_refresh_scheduled = True
+                QTimer.singleShot(1000, self._do_views_refresh)   # coalesce ráfagas
+        elif task.status == TaskStatus.ERROR and id(task) not in self._toasted:
+            self._toasted.add(id(task))
+            self.toasts.show(tr("Error: {name}").format(
+                name=task.mod_name or task.label), "error", 6000)
+
+    def _update_activity_badge(self) -> None:
+        """Muestra el nº de descargas/instalaciones activas en la pestaña Descargas."""
+        active = sum(1 for t in self.manager.tasks
+                     if t.status in self.manager._ACTIVE_STATES)
+        idx = self.tabs.indexOf(self.downloads_panel)
+        if idx >= 0:
+            self.tabs.setTabText(idx, tr("Descargas") + (f"  ({active})" if active else ""))
 
     def _do_views_refresh(self) -> None:
         self._views_refresh_scheduled = False
         self.mods_panel.refresh()
         # Reutiliza el escaneo recién hecho por el gestor (evita re-leer el disco).
         self.home_panel.refresh(self.mods_panel._scan_cache)
+
+    def _on_tab_fade(self, index: int) -> None:
+        # Fundido sutil al cambiar de pestaña. Se evita la del navegador (QWebEngineView no
+        # admite efectos gráficos: se quedaría en blanco).
+        w = self.tabs.widget(index)
+        if w is not None and w is not self.explore_tab:
+            effects.fade_in(w, 150)
 
     def _status(self, msg: str) -> None:
         self.status_label.setText(msg)
@@ -543,7 +589,8 @@ class MainWindow(QMainWindow):
             b.clicked.connect(slot)
             bar.addWidget(b)
         bar.addStretch()
-        self.dl_current_btn = QPushButton(tr("⬇ Descargar este mod"))
+        self.dl_current_btn = QPushButton(tr("Descargar este mod"))
+        self.dl_current_btn.setIcon(icons.icon("download", "#1a1207"))
         self.dl_current_btn.setProperty("variant", "primary")
         self.dl_current_btn.setToolTip(tr("Descarga el mod de la página que estás viendo"))
         self.dl_current_btn.setEnabled(False)
@@ -649,7 +696,8 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     def _refresh_play_btn(self) -> None:
         se = self.config.game().script_extender or "SE"
-        self.play_btn.setText(tr("▶ Jugar ({se})").format(se=se))
+        self.play_btn.setText(tr("Jugar ({se})").format(se=se))
+        self.play_btn.setIcon(icons.icon("play", "#0b2a12"))
         self.play_btn.setToolTip(tr("Lanzar {game} con {se}").format(game=self.config.game().name, se=se))
 
     def _refresh_title(self) -> None:

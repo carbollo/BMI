@@ -140,6 +140,7 @@ class DownloadTask:
     mod_name: str = ""
     file_name: str = ""
     version: str = ""
+    picture_url: str = ""           # miniatura del mod en Nexus (si se conoce)
     # Estado
     status: TaskStatus = TaskStatus.QUEUED
     progress: float = 0.0          # 0..100
@@ -196,6 +197,7 @@ class InstalledMod:
     enabled: bool = True
     installed_at: float = 0.0          # epoch de instalación (orden de despliegue)
     size_bytes: int = 0                # tamaño total de los archivos del mod
+    picture_url: str = ""              # miniatura del mod en Nexus (si se conoce)
 
     def to_dict(self) -> dict:
         return {
@@ -210,6 +212,7 @@ class InstalledMod:
             "enabled": self.enabled,
             "installed_at": self.installed_at,
             "size_bytes": self.size_bytes,
+            "picture_url": self.picture_url,
         }
 
     @classmethod
@@ -226,4 +229,5 @@ class InstalledMod:
             enabled=bool(d.get("enabled", True)),
             installed_at=float(d.get("installed_at", 0.0) or 0.0),
             size_bytes=int(d.get("size_bytes", 0) or 0),
+            picture_url=d.get("picture_url", "") or "",
         )

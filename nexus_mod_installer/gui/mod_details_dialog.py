@@ -4,7 +4,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from PySide6.QtCore import QUrl
+from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel, QPushButton,
@@ -38,10 +38,16 @@ class ModDetailsDialog(QDialog):
 
         layout = QVBoxLayout(self)
 
+        header = QHBoxLayout()
+        header.setSpacing(12)
+        if getattr(mod, "picture_url", ""):
+            from .images import ThumbLabel
+            header.addWidget(ThumbLabel(mod.picture_url, 72), 0, Qt.AlignmentFlag.AlignTop)
         title = QLabel(mod.name)
         title.setProperty("role", "title")
         title.setWordWrap(True)
-        layout.addWidget(title)
+        header.addWidget(title, 1)
+        layout.addLayout(header)
 
         form = QFormLayout()
         when = time.strftime("%Y-%m-%d %H:%M", time.localtime(mod.installed_at)) if mod.installed_at else "—"

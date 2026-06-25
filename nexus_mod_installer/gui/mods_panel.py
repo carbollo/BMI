@@ -1,7 +1,7 @@
 """Gestor de mods: pestañas Mods · Orden de carga · Conflictos · Perfiles."""
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, QSize
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTabWidget, QTableWidget, QTableWidgetItem,
@@ -14,6 +14,7 @@ from ..models import InstalledMod
 from ..profiles import ProfileStore, safe_name
 from ..i18n import tr
 from . import theme
+from . import images
 from .mod_details_dialog import ModDetailsDialog, human_size
 
 
@@ -86,6 +87,7 @@ class ModsPanel(QWidget):
         self.mods_table.verticalHeader().setDefaultSectionSize(32)
         self.mods_table.setAlternatingRowColors(True)
         self.mods_table.setShowGrid(False)
+        self.mods_table.setIconSize(QSize(26, 26))
         self.mods_table.doubleClicked.connect(lambda *_: self._details_selected())
         v.addWidget(self.mods_table, 1)
 
@@ -140,6 +142,8 @@ class ModsPanel(QWidget):
             elif not mod.enabled:
                 name_item.setForeground(QColor(theme.TEXT_DIM))
             self.mods_table.setItem(row, 1, name_item)
+            if not is_ext and getattr(mod, "picture_url", ""):
+                images.make_icon_async(mod.picture_url, name_item, 26)
             self.mods_table.setItem(row, 2, QTableWidgetItem(mod.version or "—"))
             self.mods_table.setItem(row, 3, QTableWidgetItem(", ".join(mod.plugins) or "—"))
             self.mods_table.setItem(row, 4,

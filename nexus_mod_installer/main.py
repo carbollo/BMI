@@ -75,6 +75,13 @@ def main(argv: list[str] | None = None) -> int:
     from . import i18n
     i18n.set_language(config.language)
 
+    # Pantalla de carga con el logo mientras se construye la GUI (el navegador embebido
+    # tarda 1-2 s en arrancar).
+    from PySide6.QtWidgets import QSplashScreen
+    splash = QSplashScreen(theme.make_splash_pixmap())
+    splash.show()
+    app.processEvents()
+
     # Importamos aquí (QtWebEngine ya está listo).
     from .manager import DownloadManager
     from .gui.main_window import MainWindow
@@ -86,6 +93,7 @@ def main(argv: list[str] | None = None) -> int:
     instance.message_received.connect(window.handle_external_link)
 
     window.show()
+    splash.finish(window)
 
     # Primera ejecución: registrar protocolo y pedir ajustes si falta config.
     if not config.protocol_registered and not nxm.is_protocol_registered():
