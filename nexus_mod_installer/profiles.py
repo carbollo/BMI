@@ -1,9 +1,9 @@
-"""Perfiles de orden de carga: instantáneas guardadas de plugins.txt.
+"""Perfiles: instantáneas de plugins.txt + estado de los mods.
 
-Un perfil captura el contenido de plugins.txt (orden + plugins activos). Permite tener
-varias configuraciones de carga y cambiar entre ellas. Alcance acotado a load-order:
-NO clona el despliegue de archivos (eso sería un gestor de perfiles completo); cambiar
-de perfil solo reescribe plugins.txt.
+Un perfil captura el contenido de plugins.txt (orden + plugins activos) en ``<nombre>.txt``
+y, además, el estado de los mods gestionados (activado, prioridad, categoría) en un
+``<nombre>.json`` paralelo. Permite tener varias configuraciones completas y cambiar entre
+ellas. Compatible hacia atrás: los perfiles antiguos (solo .txt) siguen funcionando.
 """
 from __future__ import annotations
 
@@ -44,16 +44,36 @@ class ProfileStore:
     def _path(self, name: str) -> Path:
         return self.dir / f"{_safe(name)}.txt"
 
+    def _json_path(self, name: str) -> Path:
+        return self.dir / f"{_safe(name)}.json"
+
     def exists(self, name: str) -> bool:
         return self._path(name).is_file()
 
-    def save_from(self, name: str, plugins_txt_path: str) -> Profile:
-        """Crea/actualiza un perfil copiando el plugins.txt actual."""
+    def save_from(self, name: str, plugins_txt_path: str, mods=None) -> Profile:
+        """Crea/actualiza un perfil: copia el plugins.txt actual y, si se pasan ``mods``
+        (iterable de InstalledMod), guarda su estado (activado, prioridad, categoría)."""
         src = Path(plugins_txt_path)
         content = src.read_text(encoding="utf-8-sig", errors="ignore") if src.is_file() else ""
         dest = self._path(name)
         dest.write_text(content, encoding="utf-8")
+        if mods is not None:
+            state = {str(m.mod_id): {"enabled": bool(m.enabled), "priority": int(m.priority),
+                                     "category": m.category or ""}
+                     for m in mods if m.mod_id > 0}
+            self._json_path(name).write_text(
+                json.dumps({"mods": state}, ensure_ascii=False, indent=2), encoding="utf-8")
         return Profile(name=dest.stem, file=str(dest))
+
+    def mod_state(self, name: str) -> dict | None:
+        """Estado de mods guardado en el perfil (o None si es un perfil antiguo sin .json)."""
+        p = self._json_path(name)
+        if not p.is_file():
+            return None
+        try:
+            return json.loads(p.read_text(encoding="utf-8")).get("mods", {})
+        except Exception:  # noqa: BLE001
+            return None
 
     def apply_to(self, name: str, plugins_txt_path: str) -> bool:
         """Escribe el plugins.txt con el contenido del perfil. Devuelve True si ok."""
@@ -71,11 +91,17 @@ class ProfileStore:
         if not op.is_file() or npath.exists():
             return False
         op.rename(npath)
+        oj = self._json_path(old)
+        if oj.is_file():
+            oj.rename(self._json_path(new))
         return True
 
     def delete(self, name: str) -> bool:
         p = self._path(name)
+        ok = False
         if p.is_file():
-            p.unlink()
-            return True
-        return False
+            p.unlink(); ok = True
+        j = self._json_path(name)
+        if j.is_file():
+            j.unlink()
+        return ok

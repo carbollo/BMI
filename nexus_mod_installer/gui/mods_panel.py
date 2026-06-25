@@ -616,8 +616,9 @@ class ModsPanel(QWidget):
         v = QVBoxLayout(w)
         v.setContentsMargins(14, 14, 14, 14)
         v.setSpacing(10)
-        info = QLabel(tr("Un perfil guarda tu plugins.txt actual (orden + plugins activos). "
-                         "Cambia entre configuraciones de carga sin perderlas."))
+        info = QLabel(tr("Un perfil guarda tu plugins.txt (orden + plugins activos) Y el estado "
+                         "de tus mods (activos, prioridad, separadores). Cambia entre "
+                         "configuraciones completas sin perderlas."))
         info.setProperty("role", "dim"); info.setWordWrap(True)
         v.addWidget(info)
         self.profile_list = QListWidget()
@@ -655,7 +656,8 @@ class ModsPanel(QWidget):
             self, tr("Nuevo perfil"), tr("Ya existe un perfil con ese nombre. ¿Sobrescribirlo?")
         ) != QMessageBox.StandardButton.Yes:
             return
-        prof = self.profiles.save_from(name.strip(), self.config.plugins_txt_path)
+        prof = self.profiles.save_from(name.strip(), self.config.plugins_txt_path,
+                                       mods=self.manager.store.all())
         self.config.current_profile = prof.name   # nombre saneado (= en disco)
         self.config.save()
         self._refresh_profiles()
@@ -665,10 +667,34 @@ class ModsPanel(QWidget):
         if not name or not self.config.plugins_txt_path:
             return
         if self.profiles.apply_to(name, self.config.plugins_txt_path):
+            self._restore_profile_mods(name)
             self.config.current_profile = name
             self.config.save()
             self.manager.log.emit(f"Perfil aplicado: {name}")
             self.refresh()
+
+    def _restore_profile_mods(self, name: str) -> None:
+        """Restaura el estado de los mods (activado, prioridad, categoría) guardado en el
+        perfil, re-desplegando lo necesario. Perfiles antiguos (sin .json) se ignoran."""
+        state = self.profiles.mod_state(name)
+        if not state:
+            return
+        inst = self.manager.installer
+        for mid_str, st in state.items():
+            try:
+                mid = int(mid_str)
+            except (TypeError, ValueError):
+                continue
+            m = self.manager.store.get(mid)
+            if not m:
+                continue
+            m.priority = int(st.get("priority", m.priority))
+            m.category = st.get("category", m.category) or ""
+            want = bool(st.get("enabled", m.enabled))
+            if want != m.enabled:
+                inst.set_mod_enabled(mid, want, log=self.manager.log.emit)
+        self.manager.store.save()
+        inst.apply_priority_order(log=self.manager.log.emit)
 
     def _profile_rename(self) -> None:
         name = self._selected_profile()
