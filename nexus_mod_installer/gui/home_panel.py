@@ -213,7 +213,8 @@ class HomePanel(QWidget):
 
     def _open_mod(self, mod) -> None:
         from .mod_details_dialog import ModDetailsDialog
-        ModDetailsDialog(self.manager.store.get(mod.mod_id) or mod, self).exec()
+        ModDetailsDialog(self.manager.store.get(mod.mod_id) or mod, self,
+                         store=self.manager.store).exec()
 
     def _build_first_steps(self) -> QFrame:
         card = QFrame()

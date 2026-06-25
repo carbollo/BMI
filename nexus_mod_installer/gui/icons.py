@@ -106,6 +106,26 @@ def _draw(name: str, p: QPainter) -> None:
         for y in (7, 12, 17):
             p.drawEllipse(QRectF(5, y - 1, 2, 2))
             p.drawLine(QPointF(10, y), QPointF(19, y))
+    elif name == "mesh":
+        _poly(p, [(4, 20), (12, 4), (20, 20)], close=True)
+        p.drawLine(QPointF(12, 4), QPointF(12, 13))
+        p.drawLine(QPointF(4, 20), QPointF(12, 13))
+        p.drawLine(QPointF(20, 20), QPointF(12, 13))
+    elif name == "script":
+        _poly(p, [(6, 3), (15, 3), (19, 7), (19, 21), (6, 21)], close=True)
+        _poly(p, [(15, 3), (15, 7), (19, 7)])
+        _poly(p, [(11, 11), (9, 14), (11, 17)])   # <
+        _poly(p, [(14, 11), (16, 14), (14, 17)])  # >
+    elif name == "plugin":
+        p.drawEllipse(QRectF(6, 4, 12, 4))
+        p.drawLine(QPointF(6, 6), QPointF(6, 18))
+        p.drawLine(QPointF(18, 6), QPointF(18, 18))
+        p.drawArc(QRectF(6, 10, 12, 4), 180 * 16, 180 * 16)
+        p.drawArc(QRectF(6, 16, 12, 4), 180 * 16, 180 * 16)
+    elif name == "sound":
+        _poly(p, [(4, 9), (8, 9), (12, 5), (12, 19), (8, 15), (4, 15)], close=True)
+        p.drawArc(QRectF(10, 7, 8, 10), -60 * 16, 120 * 16)
+        p.drawArc(QRectF(10, 4, 13, 16), -55 * 16, 110 * 16)
     elif name == "coffee":
         p.drawLine(QPointF(4, 8), QPointF(16, 8))
         _poly(p, [(5, 8), (6, 18), (14, 18), (15, 8)])
@@ -134,3 +154,27 @@ def pixmap(name: str, color: str = theme.TEXT, size: int = 18, stroke: float = 2
 def icon(name: str, color: str = theme.TEXT, size: int = 18, stroke: float = 2.0) -> QIcon:
     """QIcon del icono ``name`` recoloreado. Usa el color del tema por defecto."""
     return QIcon(pixmap(name, color, size, stroke))
+
+
+# Mapeo extensión -> (icono, color) para el árbol de archivos de un mod.
+_TEX, _MESH, _SCR, _PLUG, _SND, _CFG, _ARC = (
+    "#a371f7", theme.INFO, theme.SUCCESS, theme.ACCENT, "#f0a050", theme.TEXT_DIM, "#a371f7")
+_FILE_ICONS = {
+    ".dds": ("image", _TEX), ".png": ("image", _TEX), ".tga": ("image", _TEX), ".jpg": ("image", _TEX),
+    ".nif": ("mesh", _MESH), ".tri": ("mesh", _MESH), ".btr": ("mesh", _MESH),
+    ".bto": ("mesh", _MESH), ".hkx": ("mesh", _MESH),
+    ".pex": ("script", _SCR), ".psc": ("script", _SCR),
+    ".esp": ("plugin", _PLUG), ".esm": ("plugin", _PLUG), ".esl": ("plugin", _PLUG),
+    ".wav": ("sound", _SND), ".xwm": ("sound", _SND), ".fuz": ("sound", _SND),
+    ".lip": ("sound", _SND), ".mp3": ("sound", _SND), ".ogg": ("sound", _SND),
+    ".ini": ("settings", _CFG), ".json": ("settings", _CFG),
+    ".toml": ("settings", _CFG), ".cfg": ("settings", _CFG),
+    ".bsa": ("package", _ARC), ".ba2": ("package", _ARC),
+}
+
+
+def file_icon(path: str, size: int = 18) -> QIcon:
+    """Icono según la extensión del archivo (textura/malla/script/plugin/sonido/config…)."""
+    from pathlib import Path as _P
+    name, color = _FILE_ICONS.get(_P(str(path)).suffix.lower(), ("file", theme.TEXT_DIM))
+    return icon(name, color, size)

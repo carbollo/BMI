@@ -198,6 +198,7 @@ class InstalledMod:
     installed_at: float = 0.0          # epoch de instalación (orden de despliegue)
     size_bytes: int = 0                # tamaño total de los archivos del mod
     picture_url: str = ""              # miniatura del mod en Nexus (si se conoce)
+    notes: str = ""                    # notas libres del usuario (configs, detalles…)
 
     def to_dict(self) -> dict:
         return {
@@ -213,6 +214,7 @@ class InstalledMod:
             "installed_at": self.installed_at,
             "size_bytes": self.size_bytes,
             "picture_url": self.picture_url,
+            "notes": self.notes,
         }
 
     @classmethod
@@ -230,4 +232,5 @@ class InstalledMod:
             installed_at=float(d.get("installed_at", 0.0) or 0.0),
             size_bytes=int(d.get("size_bytes", 0) or 0),
             picture_url=d.get("picture_url", "") or "",
+            notes=d.get("notes", "") or "",
         )

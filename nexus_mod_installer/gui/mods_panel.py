@@ -9,13 +9,19 @@ from PySide6.QtWidgets import (
     QHeaderView, QAbstractItemView, QMessageBox, QInputDialog,
 )
 
-from .. import scanner, conflicts
+from pathlib import Path
+
+from .. import scanner, conflicts, esp
 from ..models import InstalledMod
 from ..profiles import ProfileStore, safe_name
 from ..i18n import tr
 from . import theme
 from . import images
+from . import icons
 from .mod_details_dialog import ModDetailsDialog, human_size
+
+# Color del icono según el tipo de plugin.
+_KIND_COLOR = {"ESM": theme.INFO, "ESL": "#a371f7", "ESP": theme.ACCENT}
 
 
 def _centered(widget: QWidget) -> QWidget:
@@ -41,6 +47,7 @@ class ModsPanel(QWidget):
         self.profiles = ProfileStore()
         self._populating = False
         self._scan_cache: list = []
+        self._esp_cache: dict = {}   # nombre -> (mtime, header) para no re-parsear plugins
         self._row_mods: list = []
         self._refresh_scheduled = False
         self._order_reorderable = True
@@ -48,7 +55,7 @@ class ModsPanel(QWidget):
 
         self.tabs = QTabWidget()
         self.tabs.addTab(self._build_mods_tab(), tr("📦 Mods"))
-        self.tabs.addTab(self._build_order_tab(), tr("↕ Orden de carga"))
+        self.tabs.addTab(self._build_order_tab(), tr("🧩 Plugins"))
         self.tabs.addTab(self._build_conflicts_tab(), tr("⚠ Conflictos"))
         self.tabs.addTab(self._build_profiles_tab(), tr("👤 Perfiles"))
 
@@ -227,7 +234,7 @@ class ModsPanel(QWidget):
         mod, is_ext = ents[0]
         if not is_ext:
             mod = self.manager.store.get(mod.mod_id) or mod
-        ModDetailsDialog(mod, self).exec()
+        ModDetailsDialog(mod, self, store=self.manager.store).exec()
 
     # ==================================================================
     # Pestaña: Orden de carga (todos los plugins)
@@ -302,21 +309,42 @@ class ModsPanel(QWidget):
         # visualmente cuando el filtro está activo. De lo contrario, reordenar relegaría
         # los masters CC al final del archivo.
         hide_base = self.hide_base_cb.isChecked()
+        present = {m.name.lower() for m in self._scan_cache}  # plugins detectados en Data
         self._populating = True
         self.order_list.blockSignals(True)
         self.order_list.clear()
-        shown = 0
+        shown = warn_n = 0
         for m in self._scan_cache:
             if m.category == "vanilla":
                 continue
-            it = QListWidgetItem(m.name + ("   [master]" if m.is_master else ""))
+            hdr = self._plugin_header(m.name)
+            kind = esp.plugin_kind(m.name, hdr)
+            missing = [mm for mm in (hdr.get("masters", []) if hdr else []) if mm.lower() not in present]
+            tag = f"   [{kind}]" if kind in ("ESM", "ESL") else ""
+            recs = ""
+            if hdr and hdr.get("num_records") is not None:
+                recs = "   ·   {:,} reg".format(hdr["num_records"]).replace(",", ".")
+            warn = "   ⚠ falta master" if missing else ""
+            it = QListWidgetItem(m.name + tag + recs + warn)
             it.setData(Qt.ItemDataRole.UserRole, m.name)
+            it.setIcon(icons.icon("plugin", _KIND_COLOR.get(kind, theme.ACCENT), 15))
             if self._order_togglable:
                 it.setFlags(it.flags() | Qt.ItemFlag.ItemIsUserCheckable)
             it.setCheckState(Qt.CheckState.Checked if m.enabled else Qt.CheckState.Unchecked)
-            color = self._CAT_COLOR.get(m.category)
-            if color and m.category != "externo":
-                it.setForeground(QColor(color))
+            tip = [tr("Tipo: {k}").format(k=kind)]
+            if hdr and hdr.get("masters"):
+                tip.append(tr("Requiere: ") + ", ".join(hdr["masters"]))
+            if hdr and hdr.get("author"):
+                tip.append(tr("Autor: ") + hdr["author"])
+            if missing:
+                tip.append("⚠ " + tr("Masters que faltan en Data: ") + ", ".join(missing))
+                it.setForeground(QColor(theme.DANGER))
+                warn_n += 1
+            else:
+                color = self._CAT_COLOR.get(m.category)
+                if color and m.category != "externo":
+                    it.setForeground(QColor(color))
+            it.setToolTip("\n".join(tip))
             self.order_list.addItem(it)
             if hide_base and m.category == "cc":
                 it.setHidden(True)   # sigue en el modelo, no se ve
@@ -324,7 +352,26 @@ class ModsPanel(QWidget):
                 shown += 1
         self.order_list.blockSignals(False)
         self._populating = False
-        self.order_count.setText(tr("{n} plugins").format(n=shown))
+        msg = tr("{n} plugins").format(n=shown)
+        if warn_n:
+            msg += tr("   ·   ⚠ {w} con masters que faltan").format(w=warn_n)
+        self.order_count.setText(msg)
+
+    def _plugin_header(self, name: str):
+        """Cabecera del plugin (cacheada por mtime). None si no se puede leer."""
+        if not self.config.game_data_path:
+            return None
+        p = Path(self.config.game_data_path) / name
+        try:
+            mt = p.stat().st_mtime
+        except OSError:
+            return None
+        cached = self._esp_cache.get(name)
+        if cached and cached[0] == mt:
+            return cached[1]
+        hdr = esp.safe_read_header(str(p))
+        self._esp_cache[name] = (mt, hdr)
+        return hdr
 
     def _on_order_item_changed(self, item: QListWidgetItem) -> None:
         if self._populating or not self.config.plugins_txt_path or not self._order_togglable:
