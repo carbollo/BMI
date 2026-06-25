@@ -117,10 +117,15 @@ class HomePanel(QWidget):
             actions.addWidget(b)
         actions.addStretch()
         root.addLayout(actions)
+
+        # Últimos mods instalados (o guía de primeros pasos si aún no hay).
+        root.addWidget(self._build_activity())
         root.addStretch()
 
         # Llamada a la acción para donaciones (Buy Me a Coffee).
         root.addWidget(self._build_donate_bar())
+
+        self.refresh()
 
     # ------------------------------------------------------------------
     def _build_donate_bar(self) -> QFrame:
@@ -150,7 +155,86 @@ class HomePanel(QWidget):
         from .donate_dialog import DonateDialog
         DonateDialog(self).exec()
 
-        self.refresh()
+    # ------------------------------------------------------------------
+    def _build_activity(self) -> QWidget:
+        self.activity_box = QWidget()
+        self._activity_lay = QVBoxLayout(self.activity_box)
+        self._activity_lay.setContentsMargins(0, 0, 0, 0)
+        self._activity_lay.setSpacing(10)
+        return self.activity_box
+
+    def _refresh_activity(self) -> None:
+        if not hasattr(self, "_activity_lay"):
+            return
+        while self._activity_lay.count():
+            w = self._activity_lay.takeAt(0).widget()
+            if w:
+                w.deleteLater()
+        mods = sorted(self.manager.store.all(),
+                      key=lambda m: m.installed_at or 0, reverse=True)
+        if mods:
+            title = QLabel(tr("Últimos mods instalados"))
+            title.setProperty("role", "h2")
+            self._activity_lay.addWidget(title)
+            row = QHBoxLayout()
+            row.setSpacing(12)
+            for mod in mods[:4]:
+                row.addWidget(self._mod_card(mod))
+            row.addStretch()
+            cont = QWidget()
+            cont.setLayout(row)
+            self._activity_lay.addWidget(cont)
+        else:
+            self._activity_lay.addWidget(self._build_first_steps())
+
+    def _mod_card(self, mod) -> QFrame:
+        from .images import ThumbLabel
+        card = QFrame()
+        card.setProperty("role", "card")
+        card.setFixedWidth(232)
+        card.setCursor(Qt.CursorShape.PointingHandCursor)
+        lay = QHBoxLayout(card)
+        lay.setContentsMargins(10, 10, 10, 10)
+        lay.setSpacing(10)
+        lay.addWidget(ThumbLabel(getattr(mod, "picture_url", "") or "", 46))
+        col = QVBoxLayout()
+        col.setSpacing(2)
+        name = QLabel(mod.name)
+        name.setStyleSheet("font-weight:bold; background:transparent;")
+        name.setWordWrap(True)
+        ver = QLabel(mod.version or tr("instalado"))
+        ver.setProperty("role", "dim")
+        col.addWidget(name)
+        col.addWidget(ver)
+        lay.addLayout(col, 1)
+        effects.add_shadow(card, blur=16, dy=2, alpha=110)
+        card.mousePressEvent = lambda e, m=mod: self._open_mod(m)
+        return card
+
+    def _open_mod(self, mod) -> None:
+        from .mod_details_dialog import ModDetailsDialog
+        ModDetailsDialog(self.manager.store.get(mod.mod_id) or mod, self).exec()
+
+    def _build_first_steps(self) -> QFrame:
+        card = QFrame()
+        card.setProperty("role", "card")
+        lay = QVBoxLayout(card)
+        lay.setContentsMargins(18, 16, 18, 16)
+        lay.setSpacing(9)
+        t = QLabel(tr("Primeros pasos"))
+        t.setProperty("role", "h2")
+        lay.addWidget(t)
+        for i, s in enumerate([
+            tr("Pega arriba la URL de un mod de Nexus (o un enlace nxm://) y pulsa «Añadir / Descargar»."),
+            tr("Con cuenta gratuita se abrirá la página del mod: pulsa una vez «Mod Manager Download»."),
+            tr("BMI lo descarga, instala y resuelve dependencias y traducción. ¡Listo para jugar!"),
+        ], 1):
+            lbl = QLabel(f"{i}.   {s}")
+            lbl.setWordWrap(True)
+            lbl.setProperty("role", "dim")
+            lay.addWidget(lbl)
+        effects.add_shadow(card, blur=18, dy=3, alpha=120)
+        return card
 
     # ------------------------------------------------------------------
     def refresh(self, scan_cache=None) -> None:
@@ -217,3 +301,5 @@ class HomePanel(QWidget):
             )
         else:
             self.banner.hide()
+
+        self._refresh_activity()

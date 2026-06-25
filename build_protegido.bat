@@ -13,7 +13,7 @@ set PY=%USERPROFILE%\miniconda3\python.exe
   --windows-icon-from-ico=icon.ico ^
   --company-name=carbollo ^
   --product-name="BMI - Bethesda Mod Installer" ^
-  --file-version=1.0.2.0 --product-version=1.0.2 ^
+  --file-version=1.0.3.0 --product-version=1.0.3 ^
   --file-description="BMI - Bethesda Mod Installer - gestor de mods de Nexus" ^
   --copyright="(c) 2026 carbollo - BMI" ^
   --include-package=nexus_mod_installer ^
