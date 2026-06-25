@@ -22,27 +22,29 @@ def find_conflicts(installed_mods) -> list[FileConflict]:
     installed_mods: iterable de InstalledMod (con .name, .deployed_files, .installed_at,
     .enabled). Solo se consideran mods activos.
     """
-    # ruta_lower -> lista de (installed_at, nombre, ruta_original)
-    owners: dict[str, list[tuple[float, str, str]]] = {}
+    # ruta_lower -> lista de (priority, installed_at, nombre, ruta_original)
+    owners: dict[str, list[tuple[int, float, str, str]]] = {}
     for mod in installed_mods:
         if not getattr(mod, "enabled", True):
             continue
         for rel in mod.deployed_files:
             key = rel.lower()
-            owners.setdefault(key, []).append(
-                (float(getattr(mod, "installed_at", 0.0) or 0.0), mod.name, rel)
-            )
+            owners.setdefault(key, []).append((
+                int(getattr(mod, "priority", 0) or 0),
+                float(getattr(mod, "installed_at", 0.0) or 0.0),
+                mod.name, rel,
+            ))
 
     conflicts: list[FileConflict] = []
     for key, lst in owners.items():
         if len(lst) < 2:
             continue
-        # Orden por fecha; el último (más reciente) gana.
-        lst_sorted = sorted(lst, key=lambda t: t[0])
-        winner = lst_sorted[-1][1]
-        names = [name for _, name, _ in lst_sorted]
+        # Gana el de mayor prioridad; la fecha desempata (compatibilidad con lo anterior).
+        lst_sorted = sorted(lst, key=lambda t: (t[0], t[1]))
+        winner = lst_sorted[-1][2]
+        names = [name for _, _, name, _ in lst_sorted]
         conflicts.append(
-            FileConflict(rel_path=lst_sorted[0][2], mods=names, winner=winner)
+            FileConflict(rel_path=lst_sorted[0][3], mods=names, winner=winner)
         )
 
     conflicts.sort(key=lambda c: c.rel_path.lower())

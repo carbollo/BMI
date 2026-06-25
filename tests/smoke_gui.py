@@ -67,7 +67,7 @@ def main() -> int:
     hp = HomePanel(manager)
     assert dp.table.columnCount() == 5
     assert mp.mods_table.columnCount() == 5
-    assert mp.tabs.count() == 4                 # Mods/Orden/Conflictos/Perfiles
+    assert mp.tabs.count() == 5                 # Mods/Prioridad/Plugins/Conflictos/Perfiles
     print("OK  DownloadsPanel + ModsPanel + HomePanel construidos")
 
     # 4) Simular el ciclo de señales de una tarea (sin red).

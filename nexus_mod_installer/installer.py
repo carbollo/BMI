@@ -301,6 +301,45 @@ class Installer:
                              self.config.deploy_method)
         return True
 
+    def reorder_mods(self, ordered_ids: list[int], log=lambda m: None) -> None:
+        """Asigna prioridad por el orden dado (el primero = menor prioridad; el último =
+        mayor = gana los conflictos, como en MO2) y re-aplica el orden de sobrescritura."""
+        for i, mid in enumerate(ordered_ids):
+            m = self.store.get(mid)
+            if m:
+                m.priority = i
+        self.store.save()
+        self.apply_priority_order(log)
+
+    def apply_priority_order(self, log=lambda m: None) -> int:
+        """Re-despliega SOLO los archivos en conflicto desde el mod de mayor prioridad
+        (mayor priority; la fecha desempata). No toca los archivos sin conflicto, así que
+        es rápido aunque haya cientos de mods. Devuelve cuántos archivos se reasignaron."""
+        if not self.config.game_data_path:
+            return 0
+        owners: dict[str, list] = {}
+        for m in self.store.all():
+            if not m.enabled:
+                continue
+            for rel in m.deployed_files:
+                owners.setdefault(rel.lower(), []).append((m, rel))
+        data = Path(self.config.game_data_path)
+        changed = 0
+        for lst in owners.values():
+            if len(lst) < 2:
+                continue
+            winner_m, winner_rel = max(lst, key=lambda t: (t[0].priority, t[0].installed_at))
+            src = Path(winner_m.install_dir) / winner_rel
+            if src.is_file():
+                try:
+                    deploy._link_or_copy(src, data / winner_rel, self.config.deploy_method)
+                    changed += 1
+                except OSError:
+                    pass
+        if changed:
+            log(f"Orden de prioridad aplicado: {changed} archivo(s) en conflicto reasignados.")
+        return changed
+
     def uninstall(self, mod_id: int, log=lambda m: None) -> bool:
         mod = self.store.get(mod_id)
         if not mod:

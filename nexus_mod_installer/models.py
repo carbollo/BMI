@@ -200,6 +200,8 @@ class InstalledMod:
     picture_url: str = ""              # miniatura del mod en Nexus (si se conoce)
     notes: str = ""                    # notas libres del usuario (configs, detalles…)
     hidden_files: list[str] = field(default_factory=list)  # archivos ocultos (no desplegados)
+    priority: int = 0                  # prioridad de sobrescritura (mayor = gana conflictos)
+    category: str = ""                 # categoría/separador para agrupar en la lista
 
     def to_dict(self) -> dict:
         return {
@@ -217,6 +219,8 @@ class InstalledMod:
             "picture_url": self.picture_url,
             "notes": self.notes,
             "hidden_files": self.hidden_files,
+            "priority": self.priority,
+            "category": self.category,
         }
 
     @classmethod
@@ -236,4 +240,6 @@ class InstalledMod:
             picture_url=d.get("picture_url", "") or "",
             notes=d.get("notes", "") or "",
             hidden_files=list(d.get("hidden_files", [])),
+            priority=int(d.get("priority", 0) or 0),
+            category=d.get("category", "") or "",
         )

@@ -6,7 +6,7 @@ from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTabWidget, QTableWidget, QTableWidgetItem,
     QListWidget, QListWidgetItem, QLineEdit, QPushButton, QLabel, QCheckBox,
-    QHeaderView, QAbstractItemView, QMessageBox, QInputDialog,
+    QHeaderView, QAbstractItemView, QMessageBox, QInputDialog, QTreeWidget, QTreeWidgetItem,
 )
 
 from pathlib import Path
@@ -52,9 +52,11 @@ class ModsPanel(QWidget):
         self._refresh_scheduled = False
         self._order_reorderable = True
         self._order_togglable = True
+        self._prio_populating = False
 
         self.tabs = QTabWidget()
         self.tabs.addTab(self._build_mods_tab(), tr("📦 Mods"))
+        self.tabs.addTab(self._build_priority_tab(), tr("↕ Prioridad"))
         self.tabs.addTab(self._build_order_tab(), tr("🧩 Plugins"))
         self.tabs.addTab(self._build_conflicts_tab(), tr("⚠ Conflictos"))
         self.tabs.addTab(self._build_profiles_tab(), tr("👤 Perfiles"))
@@ -237,6 +239,152 @@ class ModsPanel(QWidget):
         ModDetailsDialog(mod, self, store=self.manager.store,
                          installer=self.manager.installer).exec()
         self.request_refresh()
+
+    # ==================================================================
+    # Pestaña: Prioridad (orden de sobrescritura de archivos, estilo MO2)
+    # ==================================================================
+    def _build_priority_tab(self) -> QWidget:
+        w = QWidget()
+        v = QVBoxLayout(w)
+        v.setContentsMargins(14, 14, 14, 14)
+        v.setSpacing(10)
+        note = QLabel(tr("Arrastra para ordenar los mods. El de ABAJO gana cuando dos mods "
+                         "tocan el mismo archivo (texturas, etc.). Agrupa con separadores."))
+        note.setProperty("role", "dim"); note.setWordWrap(True)
+        v.addWidget(note)
+        top = QHBoxLayout(); top.setSpacing(8)
+        self.prio_count = QLabel(""); top.addWidget(self.prio_count)
+        top.addStretch()
+        for text, fn in [(tr("➕ Separador"), self._prio_add_separator),
+                         (tr("✏ Renombrar"), self._prio_rename_separator),
+                         (tr("🗑 Quitar separador"), self._prio_remove_separator)]:
+            b = QPushButton(text); b.clicked.connect(fn); top.addWidget(b)
+        v.addLayout(top)
+        self.prio_tree = QTreeWidget()
+        self.prio_tree.setHeaderHidden(True)
+        self.prio_tree.setIndentation(16)
+        self.prio_tree.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.prio_tree.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
+        self.prio_tree.model().rowsMoved.connect(lambda *a: self._on_prio_drop())
+        v.addWidget(self.prio_tree, 1)
+        return w
+
+    def _render_priority(self) -> None:
+        if not hasattr(self, "prio_tree"):
+            return
+        managed = sorted(self.manager.store.all(), key=lambda m: (m.priority, m.name.lower()))
+        self._prio_populating = True
+        self.prio_tree.blockSignals(True)
+        self.prio_tree.clear()
+        root = self.prio_tree.invisibleRootItem()
+        root.setFlags(root.flags() & ~Qt.ItemFlag.ItemIsDropEnabled)  # mods solo bajo categorías
+        cat_nodes: dict = {}
+        n = 0
+        for m in managed:
+            cat = m.category or ""
+            node = cat_nodes.get(cat)
+            if node is None:
+                node = QTreeWidgetItem([cat if cat else tr("Sin categoría")])
+                node.setData(0, Qt.ItemDataRole.UserRole, ("cat", cat))
+                node.setFlags(node.flags() | Qt.ItemFlag.ItemIsDropEnabled
+                              | Qt.ItemFlag.ItemIsDragEnabled)
+                fnt = node.font(0); fnt.setBold(True); node.setFont(0, fnt)
+                node.setForeground(0, QColor(theme.ACCENT))
+                self.prio_tree.addTopLevelItem(node); node.setExpanded(True)
+                cat_nodes[cat] = node
+            item = QTreeWidgetItem([m.name])
+            item.setData(0, Qt.ItemDataRole.UserRole, ("mod", m.mod_id))
+            item.setIcon(0, icons.icon("package", theme.INFO, 15))
+            item.setFlags((item.flags() | Qt.ItemFlag.ItemIsDragEnabled)
+                          & ~Qt.ItemFlag.ItemIsDropEnabled)
+            node.addChild(item)
+            n += 1
+        self.prio_tree.blockSignals(False)
+        self._prio_populating = False
+        self.prio_count.setText(tr("{n} mods · el de abajo gana").format(n=n))
+
+    def _on_prio_drop(self) -> None:
+        if not self._prio_populating:
+            QTimer.singleShot(0, self._apply_priority_from_tree)
+
+    def _apply_priority_from_tree(self) -> None:
+        root = self.prio_tree.invisibleRootItem()
+        ordered: list[tuple[int, str]] = []
+        current = ""
+        for i in range(root.childCount()):
+            top = root.child(i)
+            kind, val = top.data(0, Qt.ItemDataRole.UserRole) or ("", "")
+            if kind == "cat":
+                current = val
+                for j in range(top.childCount()):
+                    k2, v2 = top.child(j).data(0, Qt.ItemDataRole.UserRole) or ("", "")
+                    if k2 == "mod":
+                        ordered.append((v2, val))
+            elif kind == "mod":
+                ordered.append((val, current))
+        ids = []
+        for mid, cat in ordered:
+            m = self.manager.store.get(mid)
+            if m:
+                m.category = cat
+                ids.append(mid)
+        if ids:
+            self.manager.installer.reorder_mods(ids, log=self.manager.log.emit)
+        self.request_refresh()
+
+    def _prio_selected_mod_ids(self) -> list:
+        out = []
+        for it in self.prio_tree.selectedItems():
+            d = it.data(0, Qt.ItemDataRole.UserRole)
+            if d and d[0] == "mod":
+                out.append(d[1])
+        return out
+
+    def _prio_current_category(self) -> str | None:
+        it = self.prio_tree.currentItem()
+        d = it.data(0, Qt.ItemDataRole.UserRole) if it else None
+        if d and d[0] == "cat" and d[1]:
+            return d[1]
+        return None
+
+    def _prio_add_separator(self) -> None:
+        name, ok = QInputDialog.getText(self, tr("Separador"), tr("Nombre del separador:"))
+        if not ok or not name.strip():
+            return
+        ids = self._prio_selected_mod_ids()
+        if not ids:
+            QMessageBox.information(self, tr("Separador"),
+                tr("Selecciona uno o varios mods y vuelve a pulsar para agruparlos bajo «{name}»."
+                   ).format(name=name.strip()))
+            return
+        for mid in ids:
+            m = self.manager.store.get(mid)
+            if m:
+                m.category = name.strip()
+        self.manager.store.save()
+        self.refresh()
+
+    def _prio_rename_separator(self) -> None:
+        old = self._prio_current_category()
+        if not old:
+            QMessageBox.information(self, tr("Separador"), tr("Selecciona un separador."))
+            return
+        new, ok = QInputDialog.getText(self, tr("Renombrar separador"), tr("Nuevo nombre:"), text=old)
+        if ok and new.strip():
+            for m in self.manager.store.all():
+                if m.category == old:
+                    m.category = new.strip()
+            self.manager.store.save(); self.refresh()
+
+    def _prio_remove_separator(self) -> None:
+        old = self._prio_current_category()
+        if not old:
+            QMessageBox.information(self, tr("Separador"), tr("Selecciona un separador."))
+            return
+        for m in self.manager.store.all():
+            if m.category == old:
+                m.category = ""
+        self.manager.store.save(); self.refresh()
 
     # ==================================================================
     # Pestaña: Orden de carga (todos los plugins)
@@ -550,6 +698,7 @@ class ModsPanel(QWidget):
             game=self.config.game(),
         )
         self._refresh_mods()
+        self._render_priority()
         self._update_order_mode()
         self._render_order()
         self._refresh_conflicts()
