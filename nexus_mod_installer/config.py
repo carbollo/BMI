@@ -79,6 +79,9 @@ class AppConfig:
     # Herramientas externas que se pueden lanzar (Nemesis, xEdit, DynDOLOD, Synthesis…).
     # Cada una: {"name":..., "path":..., "args":..., "cwd":...}
     tools: list = field(default_factory=list)
+    # Modo VFS (experimental, estilo MO2): virtualiza los mods al jugar; Data queda limpia.
+    vfs_mode: bool = False
+    vfs_dir: str = ""        # carpeta con usvfs_x64.dll (vacío = autodetectar)
 
     # ------------------------------------------------------------------
     @staticmethod

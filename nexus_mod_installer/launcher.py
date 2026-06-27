@@ -116,6 +116,48 @@ def launch_tool(path: str, args: str = "", cwd: str = "") -> Path:
     return exe
 
 
+def launch_vfs(config: AppConfig, store, log=lambda m: None):
+    """Modo VFS (experimental, estilo MO2): monta un sistema de archivos virtual con USVFS,
+    superpone las carpetas de los mods activos (en orden de prioridad) sobre Data SIN copiar
+    nada, lanza el juego enganchado y espera a que cierre para desmontar. Data real intacto.
+
+    BLOQUEA hasta que el juego termina -> el llamador debe ejecutarlo en un hilo aparte.
+    """
+    from . import vfs
+    d = vfs.find_usvfs_dir(getattr(config, "vfs_dir", "") or None)
+    if not d:
+        raise GameLaunchError(
+            "No se encontraron los binarios de USVFS (carpeta 'usvfs/'). El Modo VFS los "
+            "necesita (usvfs_x64.dll + proxies).")
+    if not config.game_data_path:
+        raise GameLaunchError("Configura la carpeta Data del juego en Ajustes.")
+    exe = find_skse(config) or find_game_exe(config)
+    if exe is None:
+        raise GameLaunchError("No se encontró el lanzador del script extender ni el juego.")
+    gdir = game_dir(config)
+
+    v = vfs.Vfs(d)
+    v.create("bmi_instance")
+    mods = [m for m in store.all() if getattr(m, "enabled", True) and m.install_dir]
+    mods.sort(key=lambda m: (getattr(m, "priority", 0), m.name.lower()))  # menor prioridad primero
+    n = 0
+    for m in mods:
+        try:
+            if Path(m.install_dir).is_dir() and v.link_directory(m.install_dir, config.game_data_path):
+                n += 1
+        except Exception:  # noqa: BLE001
+            pass
+    log(f"VFS montado: {n} mod(s) virtualizados sobre Data (Data real intacto). Lanzando {exe.name}…")
+    try:
+        v.launch(exe, cwd=str(gdir) if gdir else None)
+        log("Juego lanzado con VFS. Espera a que lo cierres para desmontar…")
+        v.wait_for_game()
+    finally:
+        v.disconnect()
+    log("Juego cerrado. VFS desmontado; tu carpeta Data sigue limpia.")
+    return exe
+
+
 def detect_tools(config: AppConfig) -> list[dict]:
     """Busca herramientas conocidas en la carpeta del juego (y subcarpetas habituales).
     Devuelve [{name, path, args, cwd}] de las encontradas (best-effort)."""

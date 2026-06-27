@@ -702,7 +702,26 @@ class MainWindow(QMainWindow):
             self._status(tr("Ajustes guardados."))
 
     # ------------------------------------------------------------------
+    def _launch_game_vfs(self) -> None:
+        """Lanza el juego en Modo VFS (USVFS) en un hilo: monta el VFS, arranca el juego
+        enganchado y espera a que cierre — sin congelar la interfaz."""
+        import threading
+        self._status(tr("Modo VFS: montando los mods y lanzando el juego…"))
+
+        def run():
+            try:
+                launcher.launch_vfs(self.config, self.manager.store, log=self.manager.log.emit)
+            except launcher.GameLaunchError as e:
+                self.manager.log.emit("Modo VFS: " + str(e))
+            except Exception as e:  # noqa: BLE001
+                self.manager.log.emit(f"Modo VFS: error inesperado: {e}")
+
+        threading.Thread(target=run, daemon=True).start()
+
     def _launch_game(self) -> None:
+        if getattr(self.config, "vfs_mode", False):
+            self._launch_game_vfs()
+            return
         g = self.config.game()
         se = g.script_extender or "SE"
         try:

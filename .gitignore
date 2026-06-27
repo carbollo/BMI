@@ -5,8 +5,12 @@ marketing/
 dist/
 build/
 build_nuitka/
+build_nuitka_test/
 build_nuitka_onedir/
 *.exe
+# Binarios de USVFS (GPL, de MO2) — necesarios para el Modo VFS; se versionan a la fuerza.
+!usvfs/usvfs_proxy_x64.exe
+!usvfs/usvfs_proxy_x86.exe
 # Builds del nombre/empaquetado antiguos (BMI se compila con build_protegido.bat / Nuitka)
 *.spec
 build_exe.bat

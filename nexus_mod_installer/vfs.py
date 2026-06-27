@@ -122,6 +122,8 @@ class Vfs:
             [W, wintypes.LPWSTR, ctypes.c_void_p, ctypes.c_void_p, wintypes.BOOL,
              wintypes.DWORD, ctypes.c_void_p, W,
              ctypes.POINTER(_STARTUPINFOW), ctypes.POINTER(_PROCESS_INFORMATION)])
+        self._GetProcessList = self._fn("usvfsGetVFSProcessList", wintypes.BOOL,
+                                        [ctypes.POINTER(ctypes.c_size_t), wintypes.LPDWORD])
         if not (self._CreateParameters and self._CreateVFS and self._LinkDir
                 and self._CreateProcessHooked):
             raise VfsError("La DLL de usvfs no exporta la API esperada (versión incompatible).")
@@ -166,6 +168,30 @@ class Vfs:
         if not ok:
             raise VfsError(f"usvfsCreateProcessHooked falló (err {ctypes.get_last_error()}).")
         return pi
+
+    def alive_count(self) -> int:
+        """Nº de procesos aún enganchados al VFS (el juego y sus hijos)."""
+        if not self._GetProcessList:
+            return 0
+        cap = 1024
+        buf = (wintypes.DWORD * cap)()
+        count = ctypes.c_size_t(cap)
+        try:
+            self._GetProcessList(ctypes.byref(count), buf)
+        except OSError:
+            return 0
+        return int(count.value)
+
+    def wait_for_game(self, initial_grace: float = 4.0, poll: float = 1.0,
+                      should_stop=None) -> None:
+        """Espera a que TODOS los procesos del VFS terminen (el loader de SKSE acaba pronto
+        pero el juego sigue). ``should_stop`` opcional: callable que aborta la espera."""
+        import time
+        time.sleep(initial_grace)               # deja arrancar y engancharse al juego
+        while self.alive_count() > 0:
+            if should_stop and should_stop():
+                return
+            time.sleep(poll)
 
     def disconnect(self) -> None:
         try:
