@@ -2,7 +2,9 @@
 desplegar a la carpeta Data del juego y activar plugins."""
 from __future__ import annotations
 
+import filecmp
 import json
+import os
 import re
 import shutil
 import tempfile
@@ -343,25 +345,112 @@ class Installer:
             log(f"Orden de prioridad aplicado: {changed} archivo(s) en conflicto reasignados.")
         return changed
 
-    def clean_loose_files(self, log=lambda m: None) -> int:
-        """Modo VFS: retira de Data los archivos NO-plugin de los mods (texturas, mallas,
-        sonidos…), que pasan a servirse virtualizados al jugar. Mantiene los .esp/.esm/.esl
-        en Data para que plugins.txt y el escáner sigan coherentes (no se rompe el orden)."""
-        if not self.config.game_data_path:
-            return 0
-        removed = 0
+    @staticmethod
+    def _same_deployed(src: Path, tgt: Path, method: str) -> bool:
+        """¿El archivo de Data ``tgt`` es realmente el que desplegó este mod?
+        - hardlink: es el MISMO archivo (mismo inodo) → identidad a prueba de bombas.
+        - copy: misma ruta relativa y MISMO CONTENIDO byte a byte (filecmp corta antes
+          por tamaño, así que es barato). Nunca da True para un archivo vanilla o del
+          usuario con bytes distintos, aunque coincida el tamaño."""
+        try:
+            if src.samefile(tgt):
+                return True
+        except OSError:
+            pass
+        if method != "hardlink":
+            try:
+                return filecmp.cmp(str(src), str(tgt), shallow=False)
+            except OSError:
+                return False
+        return False
+
+    def _loose_clean_plan(self) -> list[tuple]:
+        """Calcula qué archivos NO-plugin de mods gestionados retirar de Data. Reescanea
+        cada mod (no se fía del manifiesto, que puede estar incompleto) y solo marca un
+        archivo de Data que PERTENECE de verdad al mod. Nunca toca .esp/.esm/.esl ni
+        archivos vanilla/del usuario. Devuelve [(mod, rel, ruta_destino)]."""
+        data = Path(self.config.game_data_path)
+        method = self.config.deploy_method
+        plan: list[tuple] = []
+        seen: set[str] = set()
         for mod in self.store.all():
-            if not mod.deployed_files:
-                continue
-            loose = [f for f in mod.deployed_files
-                     if Path(f).suffix.lower() not in deploy._PLUGIN_EXTS]
-            if loose:
-                removed += deploy.undeploy(loose, self.config.game_data_path)
-                drop = set(loose)
-                mod.deployed_files = [f for f in mod.deployed_files if f not in drop]
+            if not mod.enabled:
+                continue  # un mod desactivado ya está replegado: no posee nada en Data
+            base = Path(mod.install_dir) if mod.install_dir else None
+            if base and base.is_dir():
+                for src in base.rglob("*"):
+                    if not src.is_file() or src.suffix.lower() in deploy._PLUGIN_EXTS:
+                        continue
+                    rel = src.relative_to(base).as_posix()
+                    key = rel.lower()
+                    if key in seen:
+                        continue
+                    tgt = data / rel
+                    if tgt.is_file() and self._same_deployed(src, tgt, method):
+                        seen.add(key)
+                        plan.append((mod, rel, tgt))
+            else:
+                # Respaldo: la carpeta del mod ya no está; usa el manifiesto.
+                for rel in (mod.deployed_files or []):
+                    if Path(rel).suffix.lower() in deploy._PLUGIN_EXTS:
+                        continue
+                    key = rel.replace("\\", "/").lower()
+                    tgt = data / rel
+                    if key not in seen and tgt.is_file():
+                        seen.add(key)
+                        plan.append((mod, rel.replace("\\", "/"), tgt))
+        return plan
+
+    def clean_loose_files(self, log=lambda m: None, dry_run: bool = False) -> list[str]:
+        """Modo VFS: retira de Data TODOS los archivos NO-plugin de los mods gestionados
+        (texturas, mallas, sonidos, .bsa…), que pasan a servirse virtualizados al jugar.
+        Mantiene los .esp/.esm/.esl en Data para que plugins.txt y el escáner sigan
+        coherentes. Reescanea cada mod y solo retira lo que le pertenece de verdad
+        (mismo hardlink, o misma ruta+contenido en copia): nunca toca vanilla ni archivos
+        del usuario. ``dry_run=True`` no borra; solo devuelve la lista que se retiraría."""
+        if not self.config.game_data_path:
+            return []
+        plan = self._loose_clean_plan()
+        if dry_run:
+            return [rel for _, rel, _ in plan]
+        removed: list[str] = []
+        dirs: set[Path] = set()
+        for mod, rel, tgt in plan:
+            try:
+                tgt.unlink()
+                removed.append(rel)
+                dirs.add(tgt.parent)
+            except OSError:
+                pass
+        # Quita de TODOS los manifiestos los sueltos retirados (en Data ya solo quedan
+        # plugins); así no quedan entradas obsoletas en el mod que perdió un conflicto.
+        removed_keys = {r.replace("\\", "/").lower() for r in removed}
+        if removed_keys:
+            for mod in self.store.all():
+                if mod.deployed_files:
+                    mod.deployed_files = [
+                        f for f in mod.deployed_files
+                        if Path(f).suffix.lower() in deploy._PLUGIN_EXTS
+                        or f.replace("\\", "/").lower() not in removed_keys
+                    ]
+        # Borra de dentro hacia fuera las subcarpetas que queden vacías (textures/…),
+        # nunca la propia carpeta Data, nada por encima, ni junctions/symlinks del usuario.
+        data = Path(self.config.game_data_path)
+        _isjunc = getattr(os.path, "isjunction", lambda p: False)
+        for d in sorted(dirs, key=lambda p: len(p.parts), reverse=True):
+            cur = d
+            try:
+                while (cur != data and data in cur.parents and cur.is_dir()
+                       and not cur.is_symlink() and not _isjunc(str(cur))
+                       and not any(cur.iterdir())):
+                    parent = cur.parent
+                    cur.rmdir()
+                    cur = parent
+            except OSError:
+                pass
         if removed:
             self.store.save()
-            log(f"Data aligerado para VFS: {removed} archivo(s) sueltos retirados "
+            log(f"Data aligerado para VFS: {len(removed)} archivo(s) retirados "
                 "(se sirven virtualizados al jugar).")
         return removed
 

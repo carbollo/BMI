@@ -688,22 +688,44 @@ class MainWindow(QMainWindow):
         ToolsDialog(self.config, self).exec()
 
     def _offer_vfs_clean(self) -> None:
-        """Al activar el Modo VFS, ofrece retirar de Data los archivos de mods ya desplegados
-        (se servirán virtualizados). Mantiene los .esp para no romper el orden de carga."""
+        """Al activar el Modo VFS, ofrece retirar de Data los archivos de mods ya
+        desplegados (se servirán virtualizados). Muestra antes una vista previa de lo que
+        se retiraría y mantiene los .esp para no romper el orden de carga."""
+        inst = self.manager.installer
+        self._status(tr("Analizando tu carpeta Data…"))
+        QApplication.processEvents()
+        plan = inst.clean_loose_files(dry_run=True)
+        if not plan:
+            QMessageBox.information(
+                self, tr("Data ya está limpia"),
+                tr("Tu carpeta Data ya está limpia: no hay archivos de mods sueltos que "
+                   "retirar (sus texturas/mallas/.bsa ya se sirven por el VFS). No hay nada "
+                   "que hacer."))
+            self._status(tr("Data ya estaba limpia."))
+            return
+        sample = "\n".join("   • " + p for p in plan[:12])
+        more = tr("\n   …y {n} más").format(n=len(plan) - 12) if len(plan) > 12 else ""
         ans = QMessageBox.question(
-            self, tr("Modo VFS activado"),
-            tr("¿Aligerar tu carpeta Data ahora?\n\nSe retirarán de Data los archivos de los "
-               "mods ya instalados (texturas, mallas, sonidos…) — se servirán virtualizados al "
-               "jugar y Data quedará limpia. Los plugins (.esp/.esm/.esl) se mantienen.\n\n"
-               "Con muchos mods puede tardar un poco. Es reversible (desactiva el Modo VFS y "
-               "vuelve a desplegar)."))
+            self, tr("Aligerar Data ({n} archivos)").format(n=len(plan)),
+            tr("Se retirarán de Data {n} archivo(s) de mods (texturas, mallas, sonidos, "
+               ".bsa…). Se servirán virtualizados al jugar y Data quedará limpia. Los "
+               "plugins (.esp/.esm/.esl) se mantienen. Solo se tocan archivos que tus "
+               "mods poseen (mismos bytes) — nada vanilla ni tuyo.\n\nEjemplos:\n"
+               "{sample}{more}\n\n"
+               "⚠ IMPORTANTE: después de aligerar, lanza SIEMPRE el juego con el botón "
+               "▶ Jugar de BMI (monta el VFS). Si lo abres por Steam o por un acceso "
+               "directo de SKSE, los mods cargarán SIN sus texturas/mallas/.bsa.\n\n"
+               "Es reversible (desactiva el Modo VFS y vuelve a desplegar). ¿Continuar?")
+            .format(n=len(plan), sample=sample, more=more))
         if ans != QMessageBox.StandardButton.Yes:
+            self._status(tr("Aligerado cancelado."))
             return
         self._status(tr("Aligerando Data para el Modo VFS… puede tardar un poco."))
         QApplication.processEvents()
-        n = self.manager.installer.clean_loose_files(log=self.manager.log.emit)
+        removed = inst.clean_loose_files(log=self.manager.log.emit)
         self.mods_panel.refresh()
-        self._status(tr("Data aligerado: {n} archivo(s) ahora se sirven por el VFS.").format(n=n))
+        self._status(tr("Data aligerado: {n} archivo(s) ahora se sirven por el VFS.")
+                     .format(n=len(removed)))
 
     def _open_settings(self) -> None:
         vfs_before = getattr(self.config, "vfs_mode", False)

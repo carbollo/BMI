@@ -61,6 +61,13 @@ def find_usvfs_dir(extra: str | None = None) -> Path | None:
         candidates.append(Path(extra))
     here = Path(__file__).resolve().parent
     candidates += [here / "usvfs", here.parent / "usvfs"]
+    import sys
+    for base in (sys.executable, (sys.argv[0] if sys.argv else None)):
+        if base:
+            try:
+                candidates.append(Path(base).resolve().parent / "usvfs")
+            except OSError:
+                pass
     try:
         from .config import app_data_dir
         candidates.append(app_data_dir() / "usvfs")
