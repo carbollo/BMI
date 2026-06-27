@@ -71,9 +71,22 @@ class DownloadsPanel(QWidget):
         self.table.setAlternatingRowColors(True)
         self.table.setShowGrid(False)
         hdr = self.table.horizontalHeader()
-        hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        for c in (1, 2, 3, 4):
-            hdr.setSectionResizeMode(c, QHeaderView.ResizeMode.ResizeToContents)
+        # Columnas redimensionables por el usuario (arrastra el borde de cualquiera para
+        # verla entera). 'Archivo' se estira para los nombres largos; los tooltips muestran
+        # el contenido completo de cualquier celda al pasar el ratón. 'Acción' lleva ancho
+        # fijo que cabe el botón (ResizeToContents no mide los widgets y lo recortaba).
+        hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)  # Mod
+        hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)      # Archivo
+        hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)  # Estado
+        hdr.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)        # Progreso
+        hdr.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)        # Acción
+        hdr.setStretchLastSection(False)
+        hdr.setMinimumSectionSize(60)
+        self.table.setColumnWidth(0, 240)
+        self.table.setColumnWidth(2, 180)
+        self.table.setColumnWidth(3, 90)
+        self.table.setColumnWidth(4, 160)
+        self.table.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         v.addWidget(self.table)
 
         manager.task_added.connect(self.on_task_added)
@@ -88,8 +101,10 @@ class DownloadsPanel(QWidget):
         row = self.table.rowCount()
         self.table.insertRow(row)
         self._row_of[id(task)] = row
-        self.table.setItem(row, 0, QTableWidgetItem(self._label(task)))
-        self.table.setItem(row, 1, QTableWidgetItem(task.file_name))
+        it0 = QTableWidgetItem(self._label(task)); it0.setToolTip(self._label(task))
+        self.table.setItem(row, 0, it0)
+        it1 = QTableWidgetItem(task.file_name); it1.setToolTip(task.file_name)
+        self.table.setItem(row, 1, it1)
         self.table.setItem(row, 2, QTableWidgetItem(task.status.value))
         bar = QProgressBar()
         bar.setRange(0, 100)
@@ -102,8 +117,11 @@ class DownloadsPanel(QWidget):
         row = self._row_of.get(id(task))
         if row is None:
             return
-        self.table.item(row, 0).setText(self._label(task))
+        lbl = self._label(task)
+        self.table.item(row, 0).setText(lbl)
+        self.table.item(row, 0).setToolTip(lbl)
         self.table.item(row, 1).setText(task.file_name)
+        self.table.item(row, 1).setToolTip(task.file_name)
         self._update_row(row, task)
 
     def _update_row(self, row: int, task: DownloadTask) -> None:
@@ -116,6 +134,8 @@ class DownloadsPanel(QWidget):
             status_text = f"✗ {task.error[:50]}"
         item = self.table.item(row, 2)
         item.setText(status_text)
+        item.setToolTip(task.error if (task.status == TaskStatus.ERROR and task.error)
+                        else status_text)
         item.setForeground(QColor(theme.STATUS_COLORS.get(task.status.value, theme.TEXT)))
 
         bar = self.table.cellWidget(row, 3)
