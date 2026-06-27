@@ -174,10 +174,12 @@ class Installer:
         if not self.config.game_data_path:
             log("AVISO: no hay carpeta Data configurada; no se desplegó.")
             return [], []
-        log(f"Desplegando a {self.config.game_data_path} ({self.config.deploy_method})...")
+        vfs = getattr(self.config, "vfs_mode", False)
+        log(f"Desplegando a {self.config.game_data_path} ({self.config.deploy_method})"
+            + (" [modo VFS: solo plugins]" if vfs else "") + "...")
         deployed = deploy.deploy(
             mod.install_dir, self.config.game_data_path, self.config.deploy_method,
-            exclude=self._exclude_for(mod, root_files),
+            exclude=self._exclude_for(mod, root_files), plugins_only=vfs,
         )
         root_deployed = self._deploy_root(root_files, log)
         return deployed, root_deployed
@@ -245,6 +247,7 @@ class Installer:
                 mod.deployed_files = deploy.deploy(
                     mod.install_dir, self.config.game_data_path, self.config.deploy_method,
                     exclude=self._exclude_for(mod, root_files),
+                    plugins_only=getattr(self.config, "vfs_mode", False),
                 )
                 mod.deployed_root_files = self._deploy_root(root_files, log)
                 # Re-desplegar lo convierte en el último escritor en disco: actualiza la
@@ -339,6 +342,28 @@ class Installer:
         if changed:
             log(f"Orden de prioridad aplicado: {changed} archivo(s) en conflicto reasignados.")
         return changed
+
+    def clean_loose_files(self, log=lambda m: None) -> int:
+        """Modo VFS: retira de Data los archivos NO-plugin de los mods (texturas, mallas,
+        sonidos…), que pasan a servirse virtualizados al jugar. Mantiene los .esp/.esm/.esl
+        en Data para que plugins.txt y el escáner sigan coherentes (no se rompe el orden)."""
+        if not self.config.game_data_path:
+            return 0
+        removed = 0
+        for mod in self.store.all():
+            if not mod.deployed_files:
+                continue
+            loose = [f for f in mod.deployed_files
+                     if Path(f).suffix.lower() not in deploy._PLUGIN_EXTS]
+            if loose:
+                removed += deploy.undeploy(loose, self.config.game_data_path)
+                drop = set(loose)
+                mod.deployed_files = [f for f in mod.deployed_files if f not in drop]
+        if removed:
+            self.store.save()
+            log(f"Data aligerado para VFS: {removed} archivo(s) sueltos retirados "
+                "(se sirven virtualizados al jugar).")
+        return removed
 
     def uninstall(self, mod_id: int, log=lambda m: None) -> bool:
         mod = self.store.get(mod_id)

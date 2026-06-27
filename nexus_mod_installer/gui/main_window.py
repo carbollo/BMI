@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QTabWidget, QLineEdit,
     QPushButton, QTableWidget, QTableWidgetItem, QProgressBar, QPlainTextEdit,
     QLabel, QMessageBox, QHeaderView, QAbstractItemView, QFileDialog, QComboBox,
-    QDialog, QMenu,
+    QDialog, QMenu, QApplication,
 )
 from PySide6.QtGui import QColor
 
@@ -687,10 +687,31 @@ class MainWindow(QMainWindow):
         from .tools_dialog import ToolsDialog
         ToolsDialog(self.config, self).exec()
 
+    def _offer_vfs_clean(self) -> None:
+        """Al activar el Modo VFS, ofrece retirar de Data los archivos de mods ya desplegados
+        (se servirán virtualizados). Mantiene los .esp para no romper el orden de carga."""
+        ans = QMessageBox.question(
+            self, tr("Modo VFS activado"),
+            tr("¿Aligerar tu carpeta Data ahora?\n\nSe retirarán de Data los archivos de los "
+               "mods ya instalados (texturas, mallas, sonidos…) — se servirán virtualizados al "
+               "jugar y Data quedará limpia. Los plugins (.esp/.esm/.esl) se mantienen.\n\n"
+               "Con muchos mods puede tardar un poco. Es reversible (desactiva el Modo VFS y "
+               "vuelve a desplegar)."))
+        if ans != QMessageBox.StandardButton.Yes:
+            return
+        self._status(tr("Aligerando Data para el Modo VFS… puede tardar un poco."))
+        QApplication.processEvents()
+        n = self.manager.installer.clean_loose_files(log=self.manager.log.emit)
+        self.mods_panel.refresh()
+        self._status(tr("Data aligerado: {n} archivo(s) ahora se sirven por el VFS.").format(n=n))
+
     def _open_settings(self) -> None:
+        vfs_before = getattr(self.config, "vfs_mode", False)
         dlg = SettingsDialog(self.config, self)
         if dlg.exec():
             dlg.apply_to_config()
+            if getattr(self.config, "vfs_mode", False) and not vfs_before:
+                self._offer_vfs_clean()
             self.webview.set_downloads_dir(self.config.downloads_dir)
             self.manager.update_credentials()
             self.mods_panel.refresh()

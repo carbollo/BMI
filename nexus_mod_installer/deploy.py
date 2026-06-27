@@ -126,11 +126,14 @@ def deploy(
     game_data_path: str | os.PathLike,
     method: str = "hardlink",
     exclude=None,
+    plugins_only: bool = False,
 ) -> list[str]:
-    """Despliega todos los archivos de ``data_root`` dentro de ``game_data_path``.
+    """Despliega los archivos de ``data_root`` dentro de ``game_data_path``.
 
     ``exclude`` es una colección de rutas de origen a NO desplegar (p.ej. los
     archivos de carpeta raíz, que van junto al .exe en vez de a Data).
+    ``plugins_only`` (modo VFS): despliega SOLO los plugins (.esp/.esm/.esl); el resto
+    (texturas/mallas/sonidos…) se sirve virtualizado y no se copia a Data.
     Devuelve la lista de rutas relativas desplegadas (para el manifiesto).
     """
     src_root = Path(data_root)
@@ -148,6 +151,8 @@ def deploy(
     deployed: list[str] = []
     for src in src_root.rglob("*"):
         if src.is_dir():
+            continue
+        if plugins_only and src.suffix.lower() not in _PLUGIN_EXTS:
             continue
         if exclude_set:
             try:
