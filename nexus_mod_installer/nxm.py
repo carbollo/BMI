@@ -26,11 +26,14 @@ def _launch_command() -> str:
     if getattr(sys, "frozen", False):
         # PyInstaller: sys.executable es el .exe real.
         return f'"{Path(sys.executable)}" "%1"'
-    if "__compiled__" in globals():
-        # Nuitka (onefile/standalone). OJO: en onefile, sys.executable apunta a la
-        # carpeta temporal que se borra al cerrar — NO sirve. El .exe REAL está en
-        # sys.argv[0] (algunas versiones también lo exponen en NUITKA_ONEFILE_BINARY).
-        real = os.environ.get("NUITKA_ONEFILE_BINARY") or os.path.abspath(sys.argv[0])
+
+    # Nuitka NO pone sys.frozen, y "__compiled__" solo existe en __main__ (no en este
+    # submódulo). Detección fiable: si argv[0] es un .exe, estamos empaquetados (Nuitka
+    # onefile/standalone) y ESE es el ejecutable real. OJO: en onefile, sys.executable y
+    # __file__ apuntan a la carpeta temporal que se BORRA al cerrar — no se deben usar.
+    arg0 = os.path.abspath(sys.argv[0]) if sys.argv and sys.argv[0] else ""
+    if arg0.lower().endswith(".exe"):
+        real = os.environ.get("NUITKA_ONEFILE_BINARY") or arg0
         return f'"{real}" "%1"'
 
     # Ejecución como script: usamos pythonw.exe (sin consola) si existe.
