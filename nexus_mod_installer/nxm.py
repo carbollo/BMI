@@ -15,14 +15,24 @@ IS_WINDOWS = sys.platform.startswith("win")
 def _launch_command() -> str:
     """Construye el comando que Windows ejecutará para abrir un nxm://.
 
-    Soporta ejecución como script (python) o como .exe empaquetado (PyInstaller).
+    Soporta ejecución como script (python) o como .exe empaquetado (Nuitka onefile,
+    Nuitka standalone o PyInstaller). IMPORTANTE: en Nuitka *onefile* el proceso corre
+    desde una carpeta temporal que se BORRA al cerrar, así que NO se puede registrar
+    ``sys.executable``/``__file__`` (apuntarían a esa temporal). Nuitka expone el .exe
+    real en la variable de entorno ``NUITKA_ONEFILE_BINARY``.
     """
-    exe = Path(sys.executable)
-    if getattr(sys, "frozen", False):
-        # App empaquetada: el propio .exe recibe el enlace.
-        return f'"{exe}" "%1"'
+    import os
+
+    onefile = os.environ.get("NUITKA_ONEFILE_BINARY")
+    if onefile:
+        # Nuitka onefile: el .exe REAL y estable (no la carpeta temporal de ejecución).
+        return f'"{Path(onefile)}" "%1"'
+    if getattr(sys, "frozen", False) or "__compiled__" in globals():
+        # PyInstaller (sys.frozen) o Nuitka standalone: sys.executable ya es el .exe real.
+        return f'"{Path(sys.executable)}" "%1"'
 
     # Ejecución como script: usamos pythonw.exe (sin consola) si existe.
+    exe = Path(sys.executable)
     pyw = exe.with_name("pythonw.exe")
     runner = pyw if pyw.exists() else exe
     # Apuntamos al módulo principal del paquete.

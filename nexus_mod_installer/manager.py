@@ -105,7 +105,11 @@ class DownloadManager(QObject):
     # ------------------------------------------------------------------
     # Encolado
     # ------------------------------------------------------------------
-    def enqueue_task(self, task: DownloadTask) -> None:
+    def enqueue_task(self, task: DownloadTask, explicit: bool = False) -> None:
+        # ``explicit``: el usuario pidió ESTE archivo concreto (clic en nxm:// / "Mod
+        # Manager Download"). En ese caso se permite bajar otra parte de un mod que ya
+        # esté instalado (muchos mods tienen varios archivos: base + texturas + parche…);
+        # solo se bloquea volver a bajar EXACTAMENTE el mismo archivo.
         keyt = (task.mod_id, task.file_id)
         added = False
         upgraded = False
@@ -127,20 +131,24 @@ class DownloadManager(QObject):
                     upgraded = True
 
             dup = False
-            # Dedupe a nivel de MOD: instalado de verdad o ya en cola/proceso.
-            if task.mod_id > 0 and (
+            # 1) Duplicado EXACTO del mismo archivo (mod+file) ya visto o vivo en la lista:
+            #    se omite SIEMPRE (no tiene sentido bajar dos veces el mismo archivo).
+            if task.file_id and (
+                keyt in self._seen
+                or any(t.mod_id == task.mod_id and t.file_id == task.file_id
+                       and not t.cancelled and t.status in self._LIVE_STATES
+                       for t in self.tasks)
+            ):
+                dup = True
+            # 2) Dedupe a nivel de MOD (instalado / en cola): SOLO para peticiones NO
+            #    explícitas (resolver "este mod", dependencias, colecciones). Un nxm://
+            #    explícito de un archivo concreto SÍ puede bajar otra parte del mismo mod.
+            elif not explicit and task.mod_id > 0 and (
                 task.mod_id in self._inflight_mods or self.store.is_installed(task.mod_id)
+                or any(t.mod_id == task.mod_id and not t.cancelled
+                       and t.status in self._LIVE_STATES for t in self.tasks)
             ):
                 self.log.emit(f"↩ Mod {task.mod_id} ya instalado o en cola; se omite duplicado.")
-                dup = True
-            # ...o ya hay una tarea del mismo mod EN LA LISTA pendiente de clic.
-            elif task.mod_id > 0 and any(
-                t.mod_id == task.mod_id and not t.cancelled and t.status in self._LIVE_STATES
-                for t in self.tasks
-            ):
-                self.log.emit(f"↩ Mod {task.mod_id} ya está en la lista; se omite duplicado.")
-                dup = True
-            elif task.file_id and keyt in self._seen:
                 dup = True
 
             if not dup:
@@ -237,7 +245,7 @@ class DownloadManager(QObject):
             return
         task = DownloadTask.from_nxm(link)
         self.log.emit(f"Recibido nxm:// para mod {link.mod_id}, archivo {link.file_id}.")
-        self.enqueue_task(task)
+        self.enqueue_task(task, explicit=True)
 
     def enqueue_collection(self, url: str) -> None:
         threading.Thread(target=self._resolve_collection, args=(url,), daemon=True).start()
