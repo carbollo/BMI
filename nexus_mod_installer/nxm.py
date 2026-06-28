@@ -23,13 +23,15 @@ def _launch_command() -> str:
     """
     import os
 
-    onefile = os.environ.get("NUITKA_ONEFILE_BINARY")
-    if onefile:
-        # Nuitka onefile: el .exe REAL y estable (no la carpeta temporal de ejecución).
-        return f'"{Path(onefile)}" "%1"'
-    if getattr(sys, "frozen", False) or "__compiled__" in globals():
-        # PyInstaller (sys.frozen) o Nuitka standalone: sys.executable ya es el .exe real.
+    if getattr(sys, "frozen", False):
+        # PyInstaller: sys.executable es el .exe real.
         return f'"{Path(sys.executable)}" "%1"'
+    if "__compiled__" in globals():
+        # Nuitka (onefile/standalone). OJO: en onefile, sys.executable apunta a la
+        # carpeta temporal que se borra al cerrar — NO sirve. El .exe REAL está en
+        # sys.argv[0] (algunas versiones también lo exponen en NUITKA_ONEFILE_BINARY).
+        real = os.environ.get("NUITKA_ONEFILE_BINARY") or os.path.abspath(sys.argv[0])
+        return f'"{real}" "%1"'
 
     # Ejecución como script: usamos pythonw.exe (sin consola) si existe.
     exe = Path(sys.executable)
@@ -66,10 +68,10 @@ def register_protocol() -> tuple[bool, str]:
         return False, f"No se pudo registrar el protocolo: {e}"
 
 
-def is_protocol_registered() -> bool:
-    """Comprueba si nxm:// está registrado apuntando a algo."""
+def registered_command() -> str:
+    """Comando nxm:// registrado actualmente en Windows ('' si no hay)."""
     if not IS_WINDOWS:
-        return False
+        return ""
     import winreg
 
     try:
@@ -77,9 +79,22 @@ def is_protocol_registered() -> bool:
             winreg.HKEY_CURRENT_USER, r"Software\Classes\nxm\shell\open\command"
         ) as key:
             val, _ = winreg.QueryValueEx(key, None)
-            return bool(val)
+            return val or ""
     except OSError:
-        return False
+        return ""
+
+
+def is_protocol_registered() -> bool:
+    """Comprueba si nxm:// está registrado apuntando a algo."""
+    return bool(registered_command())
+
+
+def is_registration_stale() -> bool:
+    """¿La entrada nxm:// registrada NO coincide con el comando correcto de ESTE proceso?
+    Pasa, p. ej., cuando una build onefile anterior registró su carpeta temporal (que se
+    borra al cerrar). Solo es 'obsoleta' si ya hay algo registrado pero distinto."""
+    cur = registered_command()
+    return bool(cur) and cur != _launch_command()
 
 
 def unregister_protocol() -> tuple[bool, str]:

@@ -100,6 +100,12 @@ def main(argv: list[str] | None = None) -> int:
         ok, msg = nxm.register_protocol()
         config.protocol_registered = ok
         config.save()
+    elif nxm.is_registration_stale():
+        # Auto-reparación: la entrada nxm:// apunta a una ruta obsoleta (p. ej. la carpeta
+        # temporal de una build onefile anterior, ya borrada). Re-registra la correcta.
+        ok, _ = nxm.register_protocol()
+        config.protocol_registered = config.protocol_registered or ok
+        config.save()
 
     if not config.is_configured:
         from .gui.first_run_wizard import FirstRunWizard
