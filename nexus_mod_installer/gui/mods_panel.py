@@ -83,6 +83,11 @@ class ModsPanel(QWidget):
         refresh = QPushButton(tr("🔄 Actualizar"))
         refresh.clicked.connect(self.refresh)
         top.addWidget(refresh)
+        translate = QPushButton(tr("🌐 Traducir mis mods"))
+        translate.setToolTip(tr("Busca en Nexus la traducción al idioma de la app de cada mod "
+                                "instalado y encola las que encuentre"))
+        translate.clicked.connect(self._translate_all)
+        top.addWidget(translate)
         v.addLayout(top)
 
         self.mods_table = QTableWidget(0, 5)
@@ -159,6 +164,32 @@ class ModsPanel(QWidget):
                 QTableWidgetItem("—" if is_ext else human_size(mod.size_bytes)))
         self._populating = False
         self._filter_mods()
+
+    def _translate_all(self) -> None:
+        """Busca y encola la traducción al idioma de la app de todos los mods instalados."""
+        mods = [m for m in self.manager.store.all() if getattr(m, "mod_id", 0) and m.mod_id > 0]
+        if not mods:
+            QMessageBox.information(self, tr("Traducir mis mods"),
+                                   tr("No hay mods con id de Nexus que traducir."))
+            return
+        if (self.manager.config.language or "es") == "en":
+            QMessageBox.information(self, tr("Traducir mis mods"),
+                                   tr("El idioma de la app es inglés; la mayoría de mods ya "
+                                      "están en inglés, así que no se busca traducción."))
+            return
+        ans = QMessageBox.question(
+            self, tr("Traducir mis mods"),
+            tr("BMI buscará en Nexus la traducción al idioma de la app de tus {n} mods "
+               "instalados y encolará las que encuentre.\n\nCon cuenta gratuita, cada "
+               "traducción pedirá un clic en la web (aparecerán en Descargas como «Requiere "
+               "clic en web»). ¿Continuar?").format(n=len(mods)))
+        if ans != QMessageBox.StandardButton.Yes:
+            return
+        self.manager.translate_installed_mods()
+        QMessageBox.information(
+            self, tr("Traducir mis mods"),
+            tr("Buscando traducciones en segundo plano. Míralo en el registro y en la "
+               "pestaña Descargas."))
 
     def _filter_mods(self) -> None:
         term = self.search_edit.text().lower().strip()

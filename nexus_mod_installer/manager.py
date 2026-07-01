@@ -625,6 +625,42 @@ class DownloadManager(QObject):
         )
         self.enqueue_task(tr_task)
 
+    def translate_installed_mods(self) -> None:
+        """Busca y encola la traducción al IDIOMA DE LA APP de TODOS los mods instalados
+        (los que tienen id de Nexus). Trabaja en segundo plano para no congelar la interfaz."""
+        lang = self.config.language or "es"
+        lang_name = translations.NEXUS_LANGUAGE_NAME.get(lang)
+        if not lang_name or lang == "en":
+            self.log.emit("Traducir mis mods: no aplica al idioma actual.")
+            return
+        threading.Thread(target=self._translate_installed_worker,
+                         args=(lang_name,), daemon=True).start()
+
+    def _translate_installed_worker(self, lang_name: str) -> None:
+        mods = [m for m in self.store.all()
+                if getattr(m, "mod_id", 0) and m.mod_id > 0
+                and not getattr(m, "is_translation", False)]
+        self.log.emit(f"🌐 Buscando traducción ({lang_name}) para {len(mods)} mod(s) instalado(s)…")
+        queued = 0
+        for m in mods:
+            task = DownloadTask(
+                game_domain=getattr(m, "game_domain", "") or self.config.game_domain,
+                mod_id=m.mod_id,
+                file_id=getattr(m, "file_id", 0) or 0,
+                mod_name=m.name,
+            )
+            try:
+                before = len(self.tasks)
+                self._enqueue_translation(task)
+                if len(self.tasks) > before:
+                    queued += 1
+            except Exception as e:  # noqa: BLE001
+                self.log.emit(f"Traducción de {m.name}: error {e}")
+        self.log.emit(
+            f"🌐 Traducir mis mods: {queued} traducción(es) encolada(s) de {len(mods)} mod(s). "
+            "Revísalas en la pestaña Descargas."
+        )
+
     def missing_requirements(self, game_domain: str, mod_id: int) -> list[tuple[str, int, int]]:
         """Requisitos (mods de Nexus) de un mod que NO están instalados ni en cola.
 
