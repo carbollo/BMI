@@ -67,6 +67,8 @@ class AppConfig:
     resolve_dependencies: bool = True
     # Buscar e instalar automáticamente la traducción al español del mod
     install_spanish_translation: bool = True
+    # Forzar el idioma del juego (sLanguage en los INI) al idioma de la app en cada arranque
+    force_game_language: bool = True
     protocol_registered: bool = False
     # FOMOD: "interactive" (asistente de opciones) o "auto" (recomendadas)
     fomod_mode: str = "interactive"

@@ -7,6 +7,7 @@ El loader y el .exe del juego viven en la carpeta raíz (la carpeta PADRE de Dat
 """
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -59,6 +60,85 @@ class GameLaunchError(RuntimeError):
     pass
 
 
+# ---------------------------------------------------------------------------
+# Idioma del juego (sistema STRINGS de Bethesda): forzar sLanguage en los INI para que
+# el juego cargue siempre los textos en el idioma de la app (Skyrim SE/AE, Skyrim, FO4,
+# Starfield). No aplica a juegos sin STRINGS (Oblivion, FO3/NV, Morrowind).
+# ---------------------------------------------------------------------------
+_APP_LANG_TO_SLANG = {
+    "es": "SPANISH", "en": "ENGLISH", "fr": "FRENCH", "de": "GERMAN", "it": "ITALIAN",
+    "pl": "POLISH", "ru": "RUSSIAN", "pt": "PORTUGUESE", "cz": "CZECH", "ja": "JAPANESE",
+}
+
+
+def _my_games_dir(folder: str) -> Path | None:
+    """Carpeta 'Documents/My Games/<folder>' con los INI del juego (contempla OneDrive)."""
+    if not folder:
+        return None
+    home = Path(os.environ.get("USERPROFILE") or Path.home())
+    for base in (home / "Documents", home / "OneDrive" / "Documents",
+                 home / "OneDrive - Personal" / "Documents"):
+        d = base / "My Games" / folder
+        if d.is_dir():
+            return d
+    return home / "Documents" / "My Games" / folder  # por defecto (se creará si hace falta)
+
+
+def _set_ini_language(path: Path, slang: str) -> bool:
+    """Fija [General] sLanguage=<slang> en un INI (crea sección/archivo si falta).
+    Devuelve True si cambió algo."""
+    lines: list[str] = []
+    if path.is_file():
+        lines = path.read_text(encoding="utf-8-sig", errors="ignore").splitlines()
+    out: list[str] = []
+    in_general = found_general = done = False
+    for line in lines:
+        low = line.strip().lower()
+        if low.startswith("[") and low.endswith("]"):
+            if in_general and not done:
+                out.append(f"sLanguage={slang}"); done = True
+            in_general = (low == "[general]")
+            found_general = found_general or in_general
+            out.append(line)
+            continue
+        if in_general and low.replace(" ", "").startswith("slanguage="):
+            if not done:
+                out.append(f"sLanguage={slang}"); done = True
+            continue  # descarta la línea vieja (evita duplicados)
+        out.append(line)
+    if in_general and not done:
+        out.append(f"sLanguage={slang}"); done = True
+    if not found_general:
+        out = ["[General]", f"sLanguage={slang}", ""] + out
+    new = "\n".join(out).rstrip("\n") + "\n"
+    old = ("\n".join(lines).rstrip("\n") + "\n") if lines else ""
+    if new == old:
+        return False
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(new, encoding="utf-8")
+    return True
+
+
+def enforce_game_language(config: AppConfig) -> str | None:
+    """Escribe sLanguage=<idioma de la app> en los INI del juego activo (p. ej. Skyrim.ini
+    y SkyrimCustom.ini) para que cargue siempre los textos en ese idioma. Devuelve el idioma
+    fijado ('SPANISH'…) o None si el juego no usa STRINGS o el idioma es desconocido."""
+    g = config.game()
+    ini_base = getattr(g, "ini_base", "")
+    slang = _APP_LANG_TO_SLANG.get((getattr(config, "language", "es") or "es").lower())
+    if not slang or not ini_base or not g.appdata_folder:
+        return None
+    d = _my_games_dir(g.appdata_folder)
+    if d is None:
+        return None
+    for name in (f"{ini_base}.ini", f"{ini_base}Custom.ini"):
+        try:
+            _set_ini_language(d / name, slang)
+        except OSError:
+            pass
+    return slang
+
+
 def launch(config: AppConfig, prefer_skse: bool = True) -> Path:
     """Lanza el juego (con su script extender si existe). Devuelve el exe lanzado."""
     g = config.game()
@@ -76,6 +156,8 @@ def launch(config: AppConfig, prefer_skse: bool = True) -> Path:
             "carpeta padre), o indica la ruta del lanzador del script extender."
         )
 
+    if getattr(config, "force_game_language", True):
+        enforce_game_language(config)   # deja el juego en el idioma de la app
     try:
         subprocess.Popen([str(exe)], cwd=str(exe.parent), creationflags=_NO_WINDOW)
     except OSError as e:
@@ -135,6 +217,11 @@ def launch_vfs(config: AppConfig, store, log=lambda m: None):
     if exe is None:
         raise GameLaunchError("No se encontró el lanzador del script extender ni el juego.")
     gdir = game_dir(config)
+
+    if getattr(config, "force_game_language", True):
+        slang = enforce_game_language(config)
+        if slang:
+            log(f"Idioma del juego fijado a {slang}.")
 
     v = vfs.Vfs(d)
     v.create("bmi_instance")

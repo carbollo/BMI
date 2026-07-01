@@ -42,6 +42,9 @@ class SettingsDialog(QDialog):
         self.deps_cb.setChecked(config.resolve_dependencies)
         self.spanish_cb = QCheckBox(tr("Descargar la traducción del mod en el idioma de la app (si existe)"))
         self.spanish_cb.setChecked(config.install_spanish_translation)
+        self.force_lang_cb = QCheckBox(tr("Forzar el idioma del juego = idioma de la app "
+                                          "(sLanguage) al arrancar"))
+        self.force_lang_cb.setChecked(getattr(config, "force_game_language", True))
         self.vfs_cb = QCheckBox(tr("Modo VFS (experimental): NO copiar a Data; virtualizar los "
                                    "mods al jugar y mantener Data limpia (estilo MO2)"))
         self.vfs_cb.setChecked(getattr(config, "vfs_mode", False))
@@ -128,7 +131,7 @@ class SettingsDialog(QDialog):
         form.addRow(tr("Método de despliegue a Data:"), self.deploy_combo)
         form.addRow(tr("Instaladores FOMOD:"), self.fomod_combo)
         for cb in (self.auto_deploy_cb, self.auto_plugins_cb, self.deps_cb, self.spanish_cb,
-                   self.vfs_cb):
+                   self.force_lang_cb, self.vfs_cb):
             form.addRow("", cb)
         return w
 
@@ -211,6 +214,7 @@ class SettingsDialog(QDialog):
         self.config.auto_enable_plugins = self.auto_plugins_cb.isChecked()
         self.config.resolve_dependencies = self.deps_cb.isChecked()
         self.config.install_spanish_translation = self.spanish_cb.isChecked()
+        self.config.force_game_language = self.force_lang_cb.isChecked()
         self.config.vfs_mode = self.vfs_cb.isChecked()
         self.config.fomod_mode = self.fomod_combo.currentData() or "interactive"
         self.config.language = self.lang_combo.currentData() or "es"

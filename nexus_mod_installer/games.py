@@ -30,7 +30,8 @@ class GameInfo:
     game_exes: tuple                      # ejecutable(s) del juego
     steam_folder: str                     # bajo steamapps/common
     data_subfolder: str = "Data"          # "Data" o "Data Files" (Morrowind)
-    appdata_folder: str = ""              # bajo %LOCALAPPDATA% (plugins.txt)
+    appdata_folder: str = ""              # bajo %LOCALAPPDATA% (plugins.txt) y My Games (INI)
+    ini_base: str = ""                    # base del INI para sLanguage (p.ej. 'Skyrim'); '' = sin STRINGS
     uses_plugins_txt: bool = True         # gestiona activación vía plugins.txt
     star_prefix: bool = True              # plugins.txt usa '*' y el orden importa
     nexus_domain: str = ""                # dominio de Nexus (vacío = igual que key)
@@ -56,7 +57,7 @@ GAMES: dict[str, GameInfo] = {
         implicit_masters=_ms("Skyrim.esm", "Update.esm", "Dawnguard.esm", "HearthFires.esm", "Dragonborn.esm"),
         cc_prefix="sse", script_extender="SKSE64", loader_exes=("skse64_loader.exe",),
         game_exes=("SkyrimSE.exe",), steam_folder="Skyrim Special Edition",
-        appdata_folder="Skyrim Special Edition", star_prefix=True,
+        appdata_folder="Skyrim Special Edition", ini_base="Skyrim", star_prefix=True,
     ),
     # Anniversary Edition: misma base de Nexus que SE (mismo dominio/game_id), pero entrada
     # separada para mantener su propia lista de mods y rutas (p.ej. instalación 1.6.x aparte).
@@ -66,21 +67,21 @@ GAMES: dict[str, GameInfo] = {
         implicit_masters=_ms("Skyrim.esm", "Update.esm", "Dawnguard.esm", "HearthFires.esm", "Dragonborn.esm"),
         cc_prefix="sse", script_extender="SKSE64", loader_exes=("skse64_loader.exe",),
         game_exes=("SkyrimSE.exe",), steam_folder="Skyrim Special Edition",
-        appdata_folder="Skyrim Special Edition", star_prefix=True,
+        appdata_folder="Skyrim Special Edition", ini_base="Skyrim", star_prefix=True,
     ),
     "skyrim": GameInfo(
         key="skyrim", name="Skyrim (clásico / Legendary)", game_id=110,
         implicit_masters=_ms("Skyrim.esm", "Update.esm", "Dawnguard.esm", "HearthFires.esm", "Dragonborn.esm"),
         cc_prefix=None, script_extender="SKSE", loader_exes=("skse_loader.exe",),
         game_exes=("TESV.exe",), steam_folder="Skyrim",
-        appdata_folder="Skyrim", star_prefix=False,
+        appdata_folder="Skyrim", ini_base="Skyrim", star_prefix=False,
     ),
     "fallout4": GameInfo(
         key="fallout4", name="Fallout 4", game_id=1151,
         implicit_masters=_ms("Fallout4.esm"),
         cc_prefix="fo4", script_extender="F4SE", loader_exes=("f4se_loader.exe",),
         game_exes=("Fallout4.exe",), steam_folder="Fallout 4",
-        appdata_folder="Fallout4", star_prefix=True,
+        appdata_folder="Fallout4", ini_base="Fallout4", star_prefix=True,
     ),
     "newvegas": GameInfo(
         key="newvegas", name="Fallout: New Vegas", game_id=130,
@@ -112,7 +113,7 @@ GAMES: dict[str, GameInfo] = {
         ),
         cc_prefix=None, script_extender="SFSE", loader_exes=("sfse_loader.exe",),
         game_exes=("Starfield.exe",), steam_folder="Starfield",
-        appdata_folder="Starfield", star_prefix=True,
+        appdata_folder="Starfield", ini_base="Starfield", star_prefix=True,
     ),
     "morrowind": GameInfo(
         key="morrowind", name="Morrowind", game_id=100,
