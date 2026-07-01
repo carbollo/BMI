@@ -69,6 +69,8 @@ class AppConfig:
     install_spanish_translation: bool = True
     # Forzar el idioma del juego (sLanguage en los INI) al idioma de la app en cada arranque
     force_game_language: bool = True
+    # Bloquear la descarga de variantes de plataforma incorrectas (GOG en Steam, VR en SE)
+    block_wrong_variant: bool = True
     protocol_registered: bool = False
     # FOMOD: "interactive" (asistente de opciones) o "auto" (recomendadas)
     fomod_mode: str = "interactive"

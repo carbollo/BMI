@@ -18,7 +18,7 @@ from .models import DownloadTask, NxmLink, TaskStatus
 from .nexus_api import NexusApiClient, PremiumRequiredError, NexusApiError
 from .nexus_graphql import NexusGraphQLClient, parse_collection_url
 from .installer import Installer, InstalledModsStore
-from . import downloader, translations
+from . import downloader, translations, variants
 
 
 def mod_page_url(game_domain: str, mod_id: int) -> str:
@@ -438,9 +438,35 @@ class DownloadManager(QObject):
                         self._inflight_mods.discard(task.mod_id)
                 self._queue.task_done()
 
+    def _variant_block(self, task: DownloadTask) -> bool:
+        """Si el filtro está activo y el mod/archivo es una variante de plataforma que NO
+        corresponde al juego (GOG en un juego de Steam, o VR en un Skyrim/Fallout normal),
+        aborta la descarga con un mensaje claro. Devuelve True si la bloqueó."""
+        if (not getattr(self.config, "block_wrong_variant", True)
+                or getattr(task, "is_translation", False)):
+            return False
+        plat = variants.game_platform(self.config)
+        reason = variants.wrong_variant_reason(f"{task.mod_name} {task.file_name}", plat)
+        if not reason:
+            return False
+        where = plat.upper() if plat != "unknown" else ""
+        task.status = TaskStatus.ERROR
+        task.error = (
+            f"Variante {reason} incompatible con tu juego ({where} {self.config.game().name}). "
+            f"Descarga la versión normal para Skyrim SE. Puedes desactivar este filtro en Ajustes."
+        )
+        self._emit_update(task)
+        self.log.emit(
+            f"🚫 {task.label}: variante {reason} incompatible con tu juego "
+            f"({where}); no se descarga. Busca la versión normal."
+        )
+        return True
+
     def _process(self, task: DownloadTask) -> None:
         # 0) ¿Archivo local ya descargado? -> instalar directamente.
         if task.archive_path and Path(task.archive_path).is_file():
+            if self._variant_block(task):
+                return
             self._set(task, TaskStatus.INSTALLING)
             self.installer.install(task, log=self.log.emit, fomod_chooser=self._fomod_chooser)
             self._set(task, TaskStatus.DONE)
@@ -459,6 +485,8 @@ class DownloadManager(QObject):
         # 1) Metadatos
         self._set(task, TaskStatus.RESOLVING)
         self._fill_metadata(task)
+        if self._variant_block(task):   # variante GOG/VR incompatible -> no descargar
+            return
 
         # 2) ¿Tenemos forma de obtener el enlace?
         if not task.has_credentials and not self._is_premium:

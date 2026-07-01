@@ -88,6 +88,11 @@ class ModsPanel(QWidget):
                                 "instalado y encola las que encuentre"))
         translate.clicked.connect(self._translate_all)
         top.addWidget(translate)
+        variants_btn = QPushButton(tr("⚠ Revisar variantes"))
+        variants_btn.setToolTip(tr("Detecta mods de variante incorrecta para tu plataforma "
+                                   "(GOG en Steam, VR en Skyrim SE)"))
+        variants_btn.clicked.connect(self._check_variants)
+        top.addWidget(variants_btn)
         v.addLayout(top)
 
         self.mods_table = QTableWidget(0, 5)
@@ -164,6 +169,28 @@ class ModsPanel(QWidget):
                 QTableWidgetItem("—" if is_ext else human_size(mod.size_bytes)))
         self._populating = False
         self._filter_mods()
+
+    def _check_variants(self) -> None:
+        """Lista los mods instalados cuya variante NO corresponde a la plataforma del juego
+        (GOG en Steam, VR en Skyrim SE) — la causa de que SKSE desactive plugins."""
+        from ..variants import wrong_variant_mods, game_platform
+        plat = game_platform(self.manager.config)
+        plat_txt = plat.upper() if plat != "unknown" else "?"
+        bad = wrong_variant_mods(self.manager.config, self.manager.store)
+        if not bad:
+            QMessageBox.information(
+                self, tr("Revisar variantes"),
+                tr("No se detectaron mods de variante incorrecta. Tu juego es «{p}».")
+                .format(p=plat_txt))
+            return
+        lines = "\n".join(f"   • [{r}] {m.name}" for m, r in bad[:30])
+        more = tr("\n   …y {n} más").format(n=len(bad) - 30) if len(bad) > 30 else ""
+        QMessageBox.warning(
+            self, tr("Variantes incompatibles ({n})").format(n=len(bad)),
+            tr("Tu juego es {p}, pero estos mods son de otra plataforma (GOG/VR) y NO "
+               "funcionarán (SKSE los desactiva):\n\n{lines}{more}\n\nDesinstálalos y "
+               "descarga la versión NORMAL para Skyrim SE de cada uno.")
+            .format(p=plat_txt, lines=lines, more=more))
 
     def _translate_all(self) -> None:
         """Busca y encola la traducción al idioma de la app de todos los mods instalados."""
