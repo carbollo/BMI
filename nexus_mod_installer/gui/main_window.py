@@ -667,6 +667,13 @@ class MainWindow(QMainWindow):
         if not flow:
             return
         self._login_flow = None
+        # IMPORTANTE: NO tocar el webview ni abrir diálogos DENTRO del callback de navegación
+        # de QtWebEngine (acceptNavigationRequest) — provoca re-entrancia y el cierre del
+        # programa. Se difiere al siguiente ciclo del bucle de eventos, ya fuera del callback.
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(0, lambda: self._finish_login(flow, url))
+
+    def _finish_login(self, flow, url: str) -> None:
         try:
             info = self.manager.complete_login(flow, url)
         except Exception as e:  # noqa: BLE001
