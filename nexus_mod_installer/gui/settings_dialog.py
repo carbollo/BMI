@@ -23,9 +23,6 @@ class SettingsDialog(QDialog):
         self.setMinimumSize(680, 480)
 
         # --- Widgets (se reparten en pestañas) ---
-        self.api_key_edit = QLineEdit(config.api_key)
-        self.api_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
-        self.api_key_edit.setPlaceholderText(tr("Pega tu Personal API Key de Nexus"))
         self.data_path_edit = QLineEdit(config.game_data_path)
         self.plugins_edit = QLineEdit(config.plugins_txt_path)
         self.skse_edit = QLineEdit(config.skse_loader_path)
@@ -89,15 +86,16 @@ class SettingsDialog(QDialog):
         w = QWidget(); form = QFormLayout(w)
         form.setContentsMargins(18, 18, 18, 18)
         form.setSpacing(12)
-        validate_btn = QPushButton(tr("Validar"))
-        validate_btn.clicked.connect(self._validate_key)
-        form.addRow(tr("API Key:"), self._with_button(self.api_key_edit, validate_btn))
-        help_lbl = QLabel(
-            '<a href="https://www.nexusmods.com/users/myaccount?tab=api">'
-            + tr("Obtener API Key (sección 'Personal API Key')") + "</a>"
-        )
-        help_lbl.setOpenExternalLinks(True)
-        form.addRow("", help_lbl)
+        from .. import oauth
+        logged = oauth.OAuthSession().is_logged_in
+        form.addRow(tr("Cuenta de Nexus:"),
+                    QLabel(tr("✓ Sesión iniciada") if logged else tr("✗ Sin sesión")))
+        nota = QLabel(tr("BMI usa el inicio de sesión oficial de Nexus (OAuth). Para iniciar "
+                         "o cerrar sesión, usa el botón «Iniciar sesión con Nexus» de la "
+                         "pestaña Explorar (arriba a la derecha)."))
+        nota.setWordWrap(True)
+        nota.setProperty("role", "dim")
+        form.addRow("", nota)
         return w
 
     def _tab_language(self) -> QWidget:
@@ -179,18 +177,6 @@ class SettingsDialog(QDialog):
         if f:
             edit.setText(f)
 
-    def _validate_key(self) -> None:
-        api = NexusApiClient(self.api_key_edit.text().strip())
-        try:
-            user = api.validate()
-            QMessageBox.information(
-                self, tr("API válida"),
-                f"{user.get('name','?')}\n"
-                f"{'PREMIUM' if user.get('is_premium') else tr('Gratis')}",
-            )
-        except Exception as e:
-            QMessageBox.warning(self, tr("API inválida"), str(e))
-
     def _register_proto(self) -> None:
         ok, msg = nxm.register_protocol()
         self.config.protocol_registered = ok
@@ -206,7 +192,6 @@ class SettingsDialog(QDialog):
 
     # ------------------------------------------------------------------
     def apply_to_config(self) -> None:
-        self.config.api_key = self.api_key_edit.text().strip()
         self.config.game_data_path = self.data_path_edit.text().strip()
         self.config.plugins_txt_path = self.plugins_edit.text().strip()
         self.config.skse_loader_path = self.skse_edit.text().strip()

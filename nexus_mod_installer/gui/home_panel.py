@@ -253,10 +253,10 @@ class HomePanel(QWidget):
                 theme.ACCENT if premium else theme.TEXT,
                 dot=theme.ACCENT if premium else theme.SUCCESS,
             )
-        elif cfg.api_key:
-            self.card_account.set(tr("API key sin validar"), theme.TEXT_DIM)
+        elif getattr(self.manager, "is_logged_in", False):
+            self.card_account.set(tr("Sesión iniciada (validando…)"), theme.TEXT_DIM)
         else:
-            self.card_account.set(tr("Sin API key"), bad)
+            self.card_account.set(tr("Sin sesión · inicia sesión con Nexus"), bad)
 
         # Data
         data_ok = bool(cfg.game_data_path) and Path(cfg.game_data_path).is_dir()

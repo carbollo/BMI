@@ -62,19 +62,15 @@ class FirstRunWizard(QDialog):
         self.game_combo.currentIndexChanged.connect(self._sync_data_default)
         v.addWidget(self.game_combo)
 
-        v.addWidget(QLabel(tr("Paso 1: pega tu API Key de Nexus (gratuita).")))
-        link = QLabel('<a href="https://www.nexusmods.com/users/myaccount?tab=api">'
-                      + tr("Obtener API Key (sección 'Personal API Key')") + "</a>")
-        link.setOpenExternalLinks(True)
-        v.addWidget(link)
-        row = QHBoxLayout()
-        self.api_edit = QLineEdit(self.config.api_key)
-        self.api_edit.setEchoMode(QLineEdit.EchoMode.Password)
-        self.api_edit.setPlaceholderText(tr("Personal API Key"))
-        validate = QPushButton(tr("Validar")); validate.clicked.connect(self._validate)
-        row.addWidget(self.api_edit); row.addWidget(validate)
-        v.addLayout(row)
-        self.api_status = QLabel(""); v.addWidget(self.api_status)
+        info = QLabel(tr("Inicio de sesión: al terminar este asistente, pulsa «Iniciar "
+                         "sesión con Nexus» en la pestaña Explorar (arriba a la derecha) "
+                         "para entrar con tu cuenta de Nexus."))
+        info.setWordWrap(True)
+        v.addWidget(info)
+        nota = QLabel(tr("BMI usa el inicio de sesión oficial de Nexus (OAuth); ya no hace "
+                         "falta pegar ninguna API Key."))
+        nota.setWordWrap(True); nota.setProperty("role", "dim")
+        v.addWidget(nota)
         v.addStretch()
         return w
 
@@ -116,19 +112,6 @@ class FirstRunWizard(QDialog):
         if hasattr(self, "data_edit"):
             self.data_edit.setText(games.default_data_path(games.get(self.game_combo.currentData())))
 
-    def _validate(self) -> None:
-        api = NexusApiClient(self.api_edit.text().strip())
-        try:
-            user = api.validate()
-            self.api_status.setText(
-                f"✅ {user.get('name','?')} "
-                f"({'PREMIUM' if user.get('is_premium') else tr('Gratis')})"
-            )
-            self.api_status.setStyleSheet(f"color:{theme.SUCCESS};")
-        except Exception as e:
-            self.api_status.setText(f"❌ {e}")
-            self.api_status.setStyleSheet(f"color:{theme.DANGER};")
-
     def _pick_data(self) -> None:
         d = QFileDialog.getExistingDirectory(self, tr("Carpeta Data"), self.data_edit.text() or "")
         if d:
@@ -152,9 +135,6 @@ class FirstRunWizard(QDialog):
 
     def _next(self) -> None:
         idx = self.stack.currentIndex()
-        if idx == 0 and not self.api_edit.text().strip():
-            QMessageBox.warning(self, tr("Falta la API Key"), tr("Pega tu API Key para continuar."))
-            return
         if idx == 1 and not self.data_edit.text().strip():
             QMessageBox.warning(self, tr("Falta la carpeta Data"),
                                 tr("Indica la carpeta de datos del juego."))
@@ -175,7 +155,6 @@ class FirstRunWizard(QDialog):
         self.config.language = self.lang_combo.currentData() or self.config.language
         self.config.game_domain = self.game_combo.currentData() or self.config.game_domain
         g = games.get(self.config.game_domain)
-        self.config.api_key = self.api_edit.text().strip()
         self.config.game_data_path = self.data_edit.text().strip()
         self.config.plugins_txt_path = games.default_plugins_txt(g)
         self.config.skse_loader_path = ""
