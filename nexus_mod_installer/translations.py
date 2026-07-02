@@ -165,19 +165,34 @@ def find_translations(
     mod_id: int,
     mod_name: str,
     lang: str,
-    min_overlap: float = 0.34,
+    min_score: float = 0.7,
     log=lambda m: None,
 ) -> list[TranslationRef]:
-    """Busca traducciones del mod al idioma ``lang``. Best-effort.
+    """Busca traducciones del mod al idioma ``lang`` de forma ESTRICTA.
 
-    Prueba el nombre completo y variantes más cortas hasta encontrar candidatas (filtra por
-    parecido real de nombre). Devuelve TranslationRef sin duplicados, ordenadas por relevancia.
+    El API de Nexus no expone la lista oficial de traducciones, así que se busca por nombre
+    entre los mods marcados en ese idioma; pero para NO bajar una traducción equivocada, se
+    exige un parecido de nombre ALTO (F1 de palabras significativas ≥ ``min_score``): la
+    candidata debe contener casi todo el nombre original Y no tener muchas palabras de más.
+    Así «X - Spanish» pasa, pero ni «Super Skyrim Bros» (comparte solo «super» con «Skyrim
+    Super Weapons») ni «Crafting Categories for SkyUI» (traducción de OTRO mod) cuelan.
+    Prefiere no encontrar nada antes que acertar mal.
     """
     language_name = NEXUS_LANGUAGE_NAME.get(lang)
     if not language_name or not mod_name:
         return []
+    orig = _tokens(mod_name)
+    if not orig:
+        return []
+    # Solo el nombre completo y, como mucho, la cabecera antes de un subtítulo. NADA de
+    # acortar agresivamente (eso era lo que provocaba falsos positivos).
+    queries = [mod_name.strip()]
+    head = re.split(r"\s*[-–—:|(\[]", mod_name, 1)[0].strip()
+    if head and head.lower() != mod_name.strip().lower() and len(_tokens(head)) >= 2:
+        queries.append(head)
+
     found: dict[int, TranslationRef] = {}
-    for query in _search_variants(mod_name):
+    for query in queries:
         try:
             cands = graphql_client.search_mods(query, game_domain, language=language_name)
         except Exception as e:
@@ -186,12 +201,15 @@ def find_translations(
         for c in cands:
             if c.mod_id == mod_id or c.mod_id in found:
                 continue
+            if not _tokens(c.name):
+                continue
+            # F1 de palabras significativas: alto = la candidata contiene casi todo el nombre
+            # original y no muchas palabras de más (evita falsos positivos en ambos sentidos).
             score = name_overlap(mod_name, c.name)
-            # languageName ya garantiza el idioma; exigimos parecido real en el nombre.
-            if score >= min_overlap:
+            if score >= min_score:
                 found[c.mod_id] = TranslationRef(c.mod_id, c.name, game_domain, score)
         if found:
-            break   # ya encontramos con esta consulta; no hace falta acortar más
+            break
     return sorted(found.values(), key=lambda t: t.score, reverse=True)
 
 
