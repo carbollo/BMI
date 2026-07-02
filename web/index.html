@@ -291,8 +291,20 @@
         <p>Detecta e instala la traducción del mod en el idioma que elijas: español, inglés, francés, alemán o italiano.</p></div>
       <div class="feat reveal"><div class="ic">🔗</div><h3>Dependencias</h3>
         <p>Resuelve los mods requeridos y los descarga antes que el mod principal.</p></div>
-      <div class="feat reveal"><div class="ic">📋</div><h3>Gestor de mods</h3>
-        <p>Orden de carga, activar/desactivar, conflictos, perfiles y búsqueda. Detecta también los mods que ya tenías.</p></div>
+      <div class="feat reveal"><div class="ic">📋</div><h3>Gestor de mods estilo MO2</h3>
+        <p>Orden de carga, activar/desactivar, conflictos y búsqueda. Además: <b>prioridad arrastrable</b>, separadores por categorías, ver/ocultar los archivos de cada mod, notas, info de plugins (masters, ESL) y perfiles completos. Detecta también los mods que ya tenías.</p></div>
+      <div class="feat reveal"><div class="ic">🗂️</div><h3>Modo VFS · Data limpia</h3>
+        <p>Como Mod Organizer 2: virtualiza los mods al jugar <b>sin copiarlos</b> a la carpeta <code>Data</code> del juego, que se mantiene limpia. Reversible y con vista previa antes de aligerar.</p></div>
+      <div class="feat reveal"><div class="ic">🛠️</div><h3>Herramientas externas</h3>
+        <p>Lanza Nemesis, xEdit/SSEEdit, DynDOLOD o Synthesis desde el propio programa, con detección automática en la carpeta del juego.</p></div>
+      <div class="feat reveal"><div class="ic">🔑</div><h3>Login oficial de Nexus (OAuth)</h3>
+        <p>Inicias sesión con tu cuenta de Nexus mediante su <b>OAuth oficial</b>, con un botón dentro del programa. Sin pegar ninguna API Key.</p></div>
+      <div class="feat reveal"><div class="ic">🌍</div><h3>Idioma del juego forzado</h3>
+        <p>Mantiene el juego siempre en el idioma de la app: fija <code>sLanguage</code> en los INI en cada arranque, para que no se te ponga en inglés.</p></div>
+      <div class="feat reveal"><div class="ic">🈶</div><h3>Traducir mis mods</h3>
+        <p>Un botón busca en Nexus la traducción a tu idioma de todos tus mods instalados y las encola de golpe.</p></div>
+      <div class="feat reveal"><div class="ic">🛡️</div><h3>Filtro de variantes</h3>
+        <p>Si tu juego es de Steam, BMI bloquea al vuelo las descargas de variantes <b>GOG</b> o <b>VR</b> equivocadas (que rompen SKSE) y te avisa. Incluye «Revisar variantes» de lo ya instalado.</p></div>
       <div class="feat reveal"><div class="ic">▶</div><h3>Jugar con un clic</h3>
         <p>Lanza el juego con su Script Extender (SKSE64, F4SE…) desde el propio programa.</p></div>
     </div>
@@ -329,7 +341,7 @@
       <div class="req reveal"><div class="ic">🎮</div><h4>El juego instalado</h4>
         <p>Skyrim, Fallout, Oblivion, Starfield o Morrowind, desde Steam, GOG o Game Pass. BMI detecta automáticamente la carpeta <code>Data</code> en Steam (p. ej. <code>...\steamapps\common\Skyrim Special Edition\Data</code>); en GOG o Game Pass la indicas a mano.</p></div>
       <div class="req reveal"><div class="ic">🔑</div><h4>Cuenta de Nexus · gratis</h4>
-        <p>Solo necesitas tu <b>API Key personal</b>, que se obtiene gratis desde tu perfil de Nexus Mods.</p></div>
+        <p>Inicias sesión con el <b>login oficial de Nexus (OAuth)</b>, con un botón dentro del programa. <b>Sin pegar ninguna API Key.</b></p></div>
     </div>
   </div>
 </section>
@@ -341,19 +353,18 @@
       <p>De cero a jugar con mods. La primera vez, un asistente te acompaña.</p></div>
     <div class="guide">
       <div class="gstep reveal"><div class="gn">1</div><div>
-        <h4>Consigue tu API Key de Nexus <span class="tag free">gratis</span></h4>
-        <p>Inicia sesión en Nexus Mods y abre <b>Mi cuenta → API Keys</b>
-          (<a href="https://www.nexusmods.com/users/myaccount?tab=api" target="_blank" rel="noopener">enlace directo</a>).</p>
+        <h4>Inicia sesión con tu cuenta de Nexus <span class="tag free">gratis</span></h4>
+        <p>Dentro de BMI, en la pestaña <b>🔎 Explorar Nexus</b>, pulsa <b>🔑 Iniciar sesión con Nexus</b>.</p>
         <ul>
-          <li>En la sección <b>«Personal API Key»</b>, pulsa <b>Generate</b> y copia la clave.</li>
-          <li>La pegas una vez en BMI y queda guardada; puedes revocarla cuando quieras.</li>
+          <li>Usa el <b>login oficial de Nexus (OAuth)</b>: entras con tu usuario y contraseña en la página de Nexus, dentro del programa.</li>
+          <li>La sesión queda guardada. <b>No hace falta ninguna API Key.</b></li>
         </ul></div></div>
       <div class="gstep reveal"><div class="gn">2</div><div>
         <h4>Primer arranque: el asistente te guía en 3 pasos</h4>
         <ul>
           <li><b>Idioma y juego:</b> elige idioma (Español, English, Français, Deutsch, Italiano) y tu juego.</li>
-          <li><b>API Key:</b> pégala y pulsa <b>Validar</b> — verás tu nombre y si la cuenta es Gratis o Premium.</li>
           <li><b>Carpeta del juego:</b> indica la carpeta <code>Data</code> (BMI suele detectarla en Steam sola).</li>
+          <li><b>Inicia sesión:</b> al terminar, pulsa <b>🔑 Iniciar sesión con Nexus</b> en la pestaña Explorar (login oficial OAuth, sin API Key).</li>
           <li><b>Protocolo nxm://:</b> pulsa <b>Registrar</b> para que el botón de descarga de Nexus abra BMI.</li>
         </ul></div></div>
       <div class="gstep reveal"><div class="gn">3</div><div>
@@ -471,11 +482,11 @@
       <p>Skyrim Special Edition, Skyrim Anniversary Edition, Skyrim clásico, Fallout 4, Fallout 3, Fallout: New Vegas, Oblivion, Starfield y Morrowind.</p></details>
     <details class="reveal"><summary>¿Tengo que instalarlo?</summary>
       <p>No. Es un único archivo <code>.exe</code> portable: lo ejecutas y funciona. La configuración se guarda en tu carpeta de usuario.</p></details>
-    <details class="reveal"><summary>¿Cómo consigo mi API Key de Nexus?</summary>
-      <p>Inicia sesión en Nexus Mods y abre <b>Mi cuenta → API Keys</b> (o directamente
-        <a href="https://www.nexusmods.com/users/myaccount?tab=api" target="_blank" rel="noopener">nexusmods.com/users/myaccount?tab=api</a>).
-        En la sección <b>«Personal API Key»</b> pulsa <i>Generate</i> y copia la clave. Pégala en el asistente de BMI
-        y pulsa <b>Validar</b>. Es gratuita y puedes revocarla cuando quieras.</p></details>
+    <details class="reveal"><summary>¿Cómo inicio sesión con mi cuenta de Nexus?</summary>
+      <p>BMI usa el <b>inicio de sesión oficial de Nexus (OAuth)</b> — <b>ya no hace falta ninguna API Key</b>.
+        Abre la pestaña <b>🔎 Explorar Nexus</b> y pulsa <b>🔑 Iniciar sesión con Nexus</b>: entras con tu
+        usuario y contraseña en la propia página de Nexus, dentro del programa, y la sesión queda guardada.
+        Es gratis y puedes cerrar sesión cuando quieras.</p></details>
     <details class="reveal"><summary>Pulso «descargar» en Nexus y no abre BMI</summary>
       <p>Comprueba dos cosas:</p>
       <ul>
@@ -534,6 +545,34 @@
         <li>Descarga la versión de <b>SKSE64</b> que corresponde a tu Skyrim desde su web oficial (<a href="https://skse.silverlock.org/" target="_blank" rel="noopener">skse.silverlock.org</a>) y descomprímela en la carpeta raíz del juego.</li>
         <li>Instala el <b>Address Library</b> correcto: <b>1.5.97</b> para Skyrim SE «antiguo» o <b>1.6.x</b> para Anniversary Edition.</li>
         <li>Si no quieres volver a actualizar, pon Skyrim en <b>«Actualizar solo al iniciarlo»</b> en Steam y arranca siempre con SKSE.</li>
+      </ul></details>
+
+    <details class="reveal"><summary>RaceMenu: «SKSE script version mismatch detected (X) expected (Y)»</summary>
+      <p>RaceMenu comprueba la versión de los <b>scripts de SKSE</b> (los <code>.pex</code> de
+        <code>Data\Scripts</code>), <b>no</b> la del SKSE en sí. El aviso significa que se están cargando
+        unos scripts de SKSE <b>antiguos</b> (la versión «detectada») y RaceMenu necesita los <b>nuevos</b>
+        (la versión «esperada»). Tu loader de SKSE puede ser correcto y aun así fallar esto.</p>
+      <ul>
+        <li>Causa más habitual: tener <b>dos SKSE a la vez</b> — p. ej. <b>SKSE VR</b> instalado junto al
+          <b>SKSE64</b> normal. El equivocado/viejo gana el conflicto y carga sus scripts. <b>Desactiva o
+          quita el SKSE que no corresponde a tu juego</b> (Skyrim SE usa SKSE64; solo Skyrim VR usa SKSEVR).</li>
+        <li>Reinstala los <b>scripts de SKSE</b> de la versión correcta: del archivo de SKSE de
+          <a href="https://skse.silverlock.org/" target="_blank" rel="noopener">skse.silverlock.org</a>
+          instala su carpeta <code>Data\Scripts</code> (los <code>.pex</code>) para que ganen a los antiguos.</li>
+        <li>En la pestaña <b>⚠ Conflictos</b> de BMI verás si <code>SKSE.pex</code> lo aportan varios mods:
+          da más <b>prioridad</b> al SKSE correcto o quita el otro.</li>
+      </ul></details>
+
+    <details class="reveal"><summary>«PapyrusUtil.dll disabled, incompatible» u otro plugin de SKSE que no carga</summary>
+      <p>Un plugin DLL de SKSE (PapyrusUtil, RaceMenu/skee, etc.) se compila para una <b>plataforma y versión
+        concretas</b> del juego. El error casi siempre es haber instalado la <b>variante equivocada</b>: un
+        archivo <b>GOG</b> en un juego de <b>Steam</b>, o un archivo <b>VR</b> (Skyrim VR) en un Skyrim
+        <b>Special Edition</b> normal. SKSE lo detecta incompatible y lo desactiva.</p>
+      <ul>
+        <li>Descarga siempre el archivo para <b>Skyrim Special Edition / AE (Steam)</b> — nunca el que ponga
+          <b>GOG</b> ni <b>VR</b>.</li>
+        <li>BMI te ayuda: <b>bloquea al descargar</b> las variantes que no corresponden a tu plataforma, y con
+          <b>«⚠ Revisar variantes»</b> (pestaña Mods) te lista los que ya tengas mal para cambiarlos.</li>
       </ul></details>
 
     <details class="reveal"><summary>«Missing masters» o «this save relies on content that is no longer present»</summary>
