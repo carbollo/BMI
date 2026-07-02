@@ -28,7 +28,9 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import os
 import secrets
+import sys
 import time
 import warnings
 from dataclasses import dataclass, asdict
@@ -83,6 +85,40 @@ def _require_config() -> None:
             "OAuth sin configurar: rellena CLIENT_ID y REDIRECT_URI en oauth.py con "
             "los datos del registro de la app en Nexus."
         )
+
+
+def _client_secret() -> str:
+    """Secret del cliente OAuth. Normalmente VACÍO: BMI es una app PÚBLICA y usa solo PKCE.
+
+    ⚠️ NUNCA se incrusta el secret en el código ni en el .exe (un binario distribuido es
+    extraíble). Como respaldo — solo si Nexus llegara a exigir secret — se puede aportar
+    FUERA del repo: en la variable de entorno ``BMI_NEXUS_OAUTH_SECRET`` o en un archivo
+    ``oauth_client_secret.txt`` (en .gitignore) junto al ejecutable o en %APPDATA%/BMI.
+    Aun así, en distribución lo correcto es PKCE sin secret.
+    """
+    if CLIENT_SECRET:
+        return CLIENT_SECRET
+    env = os.environ.get("BMI_NEXUS_OAUTH_SECRET")
+    if env:
+        return env.strip()
+    bases = []
+    if sys.argv and sys.argv[0]:
+        try:
+            bases.append(Path(sys.argv[0]).resolve().parent)
+        except OSError:
+            pass
+    try:
+        bases.append(app_data_dir())
+    except Exception:
+        pass
+    for base in bases:
+        f = base / "oauth_client_secret.txt"
+        try:
+            if f.is_file():
+                return f.read_text(encoding="utf-8").strip()
+        except OSError:
+            pass
+    return ""
 
 
 # ---------------------------------------------------------------------------
@@ -175,8 +211,9 @@ def _headers() -> dict:
 
 def _token_request(payload: dict) -> OAuthToken:
     _require_config()
-    if CLIENT_SECRET:
-        payload["client_secret"] = CLIENT_SECRET    # client_secret_post (solo si Nexus lo exige)
+    secret = _client_secret()
+    if secret:
+        payload["client_secret"] = secret     # solo si Nexus lo exige (respaldo, fuera del repo)
     resp = requests.post(TOKEN_ENDPOINT, data=payload, headers=_headers(), timeout=30)
     if not resp.ok:
         raise OAuthError(f"El token endpoint devolvió {resp.status_code}: {resp.text[:200]}")

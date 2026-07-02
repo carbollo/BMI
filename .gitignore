@@ -1,6 +1,10 @@
 # === Documentos internos: NO publicar (referencian la versión con bot) ===
 marketing/
 
+# === Secretos: NUNCA subir ===
+# Secret de OAuth de Nexus (solo respaldo; BMI usa PKCE sin secret). Ver oauth._client_secret.
+oauth_client_secret.txt
+
 # === Artefactos de compilación / distribución ===
 dist/
 build/
