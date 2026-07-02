@@ -10,6 +10,7 @@ el idioma pedido. Así se baja SOLO la traducción oficial del mod, no una parec
 from __future__ import annotations
 
 import json
+from collections import deque
 
 from PySide6.QtCore import QObject, Signal, QUrl, QTimer
 from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile
@@ -58,54 +59,68 @@ EXTRACT_JS = r"""
 
 
 class TranslationScanner(QObject):
-    """Carga en segundo plano la página de cada mod y extrae sus traducciones oficiales."""
+    """Cola de mods a los que leerles su lista OFICIAL de traducciones. Carga la página de
+    cada uno en un ``QWebEnginePage`` de fondo y emite ``translation_found`` por cada
+    traducción al idioma pedido. Sirve tanto para «Traducir mis mods» (añade muchos) como
+    para la descarga de un mod suelto (añade uno): mismo mecanismo, una sola cola."""
 
-    progress = Signal(int, int)      # (procesados, total)
-    finished = Signal(list)          # [(game_domain, mod_id, name)]
+    scanning = Signal(str, int)                 # (game_domain, mod_id) que se empieza a leer
+    translation_found = Signal(str, int, str)   # (game_domain, mod_id_traduccion, nombre)
+    idle = Signal(int)                           # cola vacía; nº de páginas leídas en la tanda
 
-    def __init__(self, profile: QWebEngineProfile, parent=None):
+    def __init__(self, profile: QWebEngineProfile, lang_words, parent=None):
         super().__init__(parent)
         self._page = QWebEnginePage(profile, self)
         self._page.loadFinished.connect(self._on_loaded)
-        self._mods: list[tuple] = []
-        self._i = 0
-        self._lang_words: tuple = ()
-        self._found: list[tuple] = []
-        self._cancel = False
-
-    def start(self, mods, lang_words) -> None:
-        """``mods``: [(game_domain, mod_id, mod_name)]. ``lang_words``: fragmentos del idioma
-        objetivo en minúsculas para reconocerlo en la fila (p. ej. 'spanish', 'español')."""
-        self._mods = list(mods)
-        self._i = 0
-        self._found = []
-        self._cancel = False
         self._lang_words = tuple(w.lower() for w in lang_words if w)
-        self._load_next()
+        self._queue: deque = deque()
+        self._seen: set[int] = set()   # no re-escanear el mismo mod
+        self._current: tuple | None = None
+        self._busy = False
+        self._done_count = 0
 
-    def cancel(self) -> None:
-        self._cancel = True
+    def add(self, mods) -> None:
+        """``mods``: iterable de (game_domain, mod_id, mod_name). Los nuevos se encolan y, si
+        el escáner está parado, arranca."""
+        for dom, mid, name in mods:
+            if not mid or int(mid) in self._seen:
+                continue
+            self._seen.add(int(mid))
+            self._queue.append((dom, int(mid), name or ""))
+        if not self._busy:
+            self._done_count = 0
+            self._next()
+
+    @property
+    def busy(self) -> bool:
+        return self._busy
 
     # ------------------------------------------------------------------
-    def _load_next(self) -> None:
-        if self._cancel or self._i >= len(self._mods):
-            self.finished.emit(self._found)
+    def _next(self) -> None:
+        if not self._queue:
+            self._busy = False
+            self._current = None
+            self.idle.emit(self._done_count)
             return
-        self.progress.emit(self._i, len(self._mods))
-        dom, mid, _ = self._mods[self._i]
+        self._busy = True
+        self._current = self._queue.popleft()
+        dom, mid, _ = self._current
+        self.scanning.emit(dom, mid)
         self._page.load(QUrl(f"https://www.nexusmods.com/{dom}/mods/{mid}?tab=description"))
 
     def _on_loaded(self, ok: bool) -> None:
-        # Damos un margen a que el sitio (React) renderice la sección antes de extraer.
+        # Margen para que el sitio (React) renderice la sección antes de extraer.
         QTimer.singleShot(1300, self._extract)
 
     def _extract(self) -> None:
-        if self._cancel:
+        if self._current is None:
             return
         self._page.runJavaScript(EXTRACT_JS, self._on_extracted)
 
     def _on_extracted(self, result) -> None:
-        dom, mid, _ = self._mods[self._i]
+        if self._current is None:
+            return
+        dom, mid, _ = self._current
         try:
             items = json.loads(result or "[]")
         except Exception:
@@ -114,6 +129,6 @@ class TranslationScanner(QObject):
             tmid = it.get("modId")
             lang = (it.get("lang") or "").lower()
             if tmid and int(tmid) != mid and any(w in lang for w in self._lang_words):
-                self._found.append((dom, int(tmid), it.get("name", "") or ""))
-        self._i += 1
-        self._load_next()
+                self.translation_found.emit(dom, int(tmid), it.get("name", "") or "")
+        self._done_count += 1
+        self._next()

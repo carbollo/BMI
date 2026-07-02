@@ -41,6 +41,8 @@ class DownloadManager(QObject):
     needs_click = Signal(object)    # DownloadTask que requiere clic en la web
     fomod_requested = Signal(object)  # FomodRequest (la GUI muestra el asistente)
     tasks_changed = Signal()        # la lista de tareas cambió (p.ej. se quitaron varias)
+    translation_lookup = Signal(str, int, str)  # (dominio, mod_id, nombre): leer traducciones
+                                                # oficiales de la página del mod (vía navegador)
 
     def __init__(self, config: AppConfig):
         super().__init__()
@@ -651,37 +653,12 @@ class DownloadManager(QObject):
         if lang == "en":
             return
 
-        # 2) ¿Existe un mod de traducción aparte?
-        if not task.mod_name:
-            return
-        try:
-            refs = translations.find_translations(
-                self.graphql, task.game_domain, task.mod_id, task.mod_name, lang,
-                log=self.log.emit,
-            )
-        except Exception as e:
-            self.log.emit(f"No se pudo buscar la traducción ({lang_name}): {e}")
-            return
-        if not refs:
-            self.log.emit(f"Sin traducción ({lang_name}) encontrada para {task.label}.")
-            return
-        # Tomamos la mejor candidata (mayor relevancia).
-        best = refs[0]
-        if self.store.is_installed(best.mod_id):
-            return
-        self.log.emit(
-            f"🌐 Traducción ({lang_name}) encontrada para {task.label}: "
-            f"'{best.name}' (mod {best.mod_id}). Encolando…"
-        )
-        file_id = self._primary_file_id(best.game_domain, best.mod_id) or 0
-        tr_task = DownloadTask(
-            game_domain=best.game_domain,
-            mod_id=best.mod_id,
-            file_id=file_id,
-            mod_name=best.name,
-            is_translation=True,
-        )
-        self.enqueue_task(tr_task)
+        # 2) Traducción como MOD APARTE: NO se busca por nombre (impreciso, daba falsos
+        #    positivos). Pedimos a la interfaz que lea la lista OFICIAL de traducciones de la
+        #    página del mod (sección «Translations available on the Nexus», vía el navegador
+        #    embebido con la sesión del usuario) y encole la de tu idioma si existe.
+        if task.mod_id > 0 and task.mod_name:
+            self.translation_lookup.emit(task.game_domain, task.mod_id, task.mod_name)
 
     def translate_installed_mods(self) -> None:
         """Busca y encola la traducción al IDIOMA DE LA APP de TODOS los mods instalados
