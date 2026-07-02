@@ -114,20 +114,38 @@ def parse_collection_url(url: str) -> Optional[tuple[str, Optional[int]]]:
 class NexusGraphQLClient:
     def __init__(self, api_key: str = ""):
         self.api_key = api_key
+        self._bearer = None          # callable -> access_token OAuth (o None); tiene prioridad
         self._session = requests.Session()
 
     def set_api_key(self, api_key: str) -> None:
         self.api_key = api_key
 
+    def set_bearer_provider(self, provider) -> None:
+        """``provider``: función sin args que devuelve un access_token OAuth vigente (o None)."""
+        self._bearer = provider
+
+    def _bearer_token(self):
+        if not self._bearer:
+            return None
+        try:
+            return self._bearer()
+        except Exception:
+            return None
+
     def _headers(self) -> dict:
-        return {
-            "apikey": self.api_key,
+        h = {
             "Application-Name": __app_name__,
             "Application-Version": __version__,
             "User-Agent": f"{__app_name__}/{__version__}",
             "Content-Type": "application/json",
             "Accept": "application/json",
         }
+        tok = self._bearer_token()
+        if tok:
+            h["Authorization"] = f"Bearer {tok}"     # OAuth (preferente)
+        else:
+            h["apikey"] = self.api_key
+        return h
 
     def _post(self, query: str, variables: dict) -> dict:
         resp = self._session.post(

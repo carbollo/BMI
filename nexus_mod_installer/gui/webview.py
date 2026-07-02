@@ -9,29 +9,39 @@ from PySide6.QtWebEngineCore import (
 )
 from PySide6.QtWebEngineWidgets import QWebEngineView
 
+from .. import oauth
+
 
 def home_url(domain: str) -> str:
     return f"https://www.nexusmods.com/{domain}"
 
 
 class _InterceptPage(QWebEnginePage):
-    """Página que captura navegaciones a nxm:// y las reenvía como señal."""
+    """Página que captura navegaciones a nxm:// y al redirect de OAuth, y las reenvía."""
 
     nxm_requested = Signal(str)
+    oauth_redirect = Signal(str)   # URL de REDIRECT_URI capturada (trae ?code=...)
 
     def __init__(self, profile: QWebEngineProfile, parent=None):
         super().__init__(profile, parent)
 
     def acceptNavigationRequest(self, url: QUrl, nav_type, is_main_frame: bool) -> bool:
+        s = url.toString()
         if url.scheme().lower() == "nxm":
-            self.nxm_requested.emit(url.toString())
+            self.nxm_requested.emit(s)
             return False  # no navegamos; lo gestionamos nosotros
+        if oauth.LoginFlow.is_redirect(s):
+            # Nexus nos devuelve a http://127.0.0.1/callback?code=...: lo capturamos aquí
+            # (no se navega a 127.0.0.1) y completamos el intercambio del token.
+            self.oauth_redirect.emit(s)
+            return False
         return super().acceptNavigationRequest(url, nav_type, is_main_frame)
 
     def createWindow(self, _window_type):
         """Para enlaces que abren pestaña nueva (target=_blank): cargar en la misma vista."""
         temp = _InterceptPage(self.profile(), self)
         temp.nxm_requested.connect(self.nxm_requested)
+        temp.oauth_redirect.connect(self.oauth_redirect)
 
         def _load(u: QUrl):
             self.setUrl(u)
@@ -45,6 +55,7 @@ class NexusWebView(QWebEngineView):
     """Vista del navegador de Nexus."""
 
     nxm_requested = Signal(str)
+    oauth_redirect = Signal(str)           # redirect de OAuth capturado (trae ?code=...)
     manual_download_started = Signal(str)  # se aceptó una descarga (nombre de archivo)
     manual_file_downloaded = Signal(str)   # ruta del archivo descargado manualmente
     status_message = Signal(str)
@@ -63,6 +74,7 @@ class NexusWebView(QWebEngineView):
 
         self._page = _InterceptPage(self._profile, self)
         self._page.nxm_requested.connect(self.nxm_requested)
+        self._page.oauth_redirect.connect(self.oauth_redirect)
         self.setPage(self._page)
 
         self.setUrl(QUrl(home_url(self._game_domain)))

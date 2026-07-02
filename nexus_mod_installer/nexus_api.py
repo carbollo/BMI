@@ -42,6 +42,7 @@ class PremiumRequiredError(NexusApiError):
 class NexusApiClient:
     def __init__(self, api_key: str = ""):
         self.api_key = api_key
+        self._bearer = None          # callable -> access_token OAuth (o None); tiene prioridad
         self._session = requests.Session()
         self._user: Optional[dict] = None
 
@@ -50,18 +51,39 @@ class NexusApiClient:
         self.api_key = api_key
         self._user = None
 
+    def set_bearer_provider(self, provider) -> None:
+        """``provider``: función sin args que devuelve un access_token OAuth vigente (o None).
+        Si devuelve token, se usa 'Authorization: Bearer' en vez de la API key personal."""
+        self._bearer = provider
+
+    def _bearer_token(self):
+        if not self._bearer:
+            return None
+        try:
+            return self._bearer()
+        except Exception:
+            return None
+
+    def has_auth(self) -> bool:
+        return bool(self._bearer_token()) or bool(self.api_key)
+
     def _headers(self) -> dict:
-        return {
-            "apikey": self.api_key,
+        h = {
             "Application-Name": __app_name__,
             "Application-Version": __version__,
             "User-Agent": f"{__app_name__}/{__version__}",
             "Accept": "application/json",
         }
+        tok = self._bearer_token()
+        if tok:
+            h["Authorization"] = f"Bearer {tok}"     # OAuth (preferente)
+        else:
+            h["apikey"] = self.api_key
+        return h
 
     def _get(self, path: str, params: dict | None = None) -> dict | list:
-        if not self.api_key:
-            raise NexusApiError("Falta la API key de Nexus. Configúrala en Ajustes.")
+        if not self.has_auth():
+            raise NexusApiError("Inicia sesión con Nexus (o configura una API key en Ajustes).")
         url = f"{API_BASE}{path}"
         resp = self._session.get(url, headers=self._headers(), params=params, timeout=30)
         if resp.status_code == 429:

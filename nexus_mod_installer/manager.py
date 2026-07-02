@@ -18,7 +18,7 @@ from .models import DownloadTask, NxmLink, TaskStatus
 from .nexus_api import NexusApiClient, PremiumRequiredError, NexusApiError
 from .nexus_graphql import NexusGraphQLClient, parse_collection_url
 from .installer import Installer, InstalledModsStore
-from . import downloader, translations, variants
+from . import downloader, translations, variants, oauth
 
 
 def mod_page_url(game_domain: str, mod_id: int) -> str:
@@ -47,6 +47,11 @@ class DownloadManager(QObject):
         self.config = config
         self.api = NexusApiClient(config.api_key)
         self.graphql = NexusGraphQLClient(config.api_key)
+        # Sesión OAuth de Nexus (método oficial). Si hay sesión iniciada, los clientes usan
+        # su token Bearer; si no, caen a la API key personal (respaldo).
+        self.oauth = oauth.OAuthSession()
+        self.api.set_bearer_provider(self.oauth.access_token_or_none)
+        self.graphql.set_bearer_provider(self.oauth.access_token_or_none)
         self.store = InstalledModsStore(config)
         self.installer = Installer(config, self.store)
 
@@ -62,12 +67,37 @@ class DownloadManager(QObject):
 
     # ------------------------------------------------------------------
     def update_credentials(self) -> None:
-        """Valida la API key en segundo plano (no bloquea la interfaz)."""
+        """Valida las credenciales en segundo plano (OAuth si hay sesión; si no, API key)."""
         self.api.set_api_key(self.config.api_key)
         self.graphql.set_api_key(self.config.api_key)
-        if not self.config.api_key:
+        if not self.oauth.is_logged_in and not self.config.api_key:
             return
         threading.Thread(target=self._validate_credentials, daemon=True).start()
+
+    # --- OAuth (login oficial con Nexus) ----------------------------------
+    @property
+    def is_logged_in(self) -> bool:
+        return self.oauth.is_logged_in
+
+    def start_login(self):
+        """Inicia el flujo OAuth. Devuelve (flow, authorize_url) para cargar en el webview."""
+        flow = oauth.LoginFlow()
+        return flow, flow.authorize_url()
+
+    def complete_login(self, flow, redirect_url: str) -> dict:
+        """Del redirect capturado por el webview al token; guarda la sesión y valida."""
+        token = flow.complete(redirect_url)
+        self.oauth.set_token(token)
+        self.update_credentials()
+        try:
+            return oauth.fetch_userinfo(token.access_token)
+        except Exception:  # noqa: BLE001
+            return {}
+
+    def logout(self) -> None:
+        self.oauth.logout()
+        self._is_premium = False
+        self.log.emit("Sesión de Nexus cerrada.")
 
     def _validate_credentials(self) -> None:
         try:

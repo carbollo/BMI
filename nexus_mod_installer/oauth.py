@@ -48,10 +48,13 @@ AUTHORIZE_ENDPOINT = "https://users.nexusmods.com/oauth/authorize"
 TOKEN_ENDPOINT = "https://users.nexusmods.com/oauth/token"
 USERINFO_ENDPOINT = "https://users.nexusmods.com/oauth/userinfo"
 
-# --- Config de la app: RELLENAR tras el registro en Nexus -------------------
-CLIENT_ID = ""        # <-- te lo da Nexus al aprobar/registrar la app
-CLIENT_SECRET = ""    # <-- SOLO si Nexus lo exige para apps nativas (con PKCE suele bastar)
-REDIRECT_URI = ""     # <-- acordado en el registro (p.ej. "https://127.0.0.1:PORT/callback" o un esquema propio)
+# --- Config de la app (registrada en Nexus como app pública/nativa) ----------
+CLIENT_ID = "bmi"     # Client ID aprobado por Nexus
+# App PÚBLICA de escritorio: se autentica SOLO con PKCE, sin secret. NO se debe incrustar
+# el Client Secret en un .exe distribuido ni en el repo público (sería extraíble). Se deja
+# vacío a propósito; si Nexus exigiera secret, habría que registrar la app como pública.
+CLIENT_SECRET = ""
+REDIRECT_URI = "http://127.0.0.1/callback"   # el webview embebido intercepta este redirect
 SCOPES = ["public", "openid"]   # 'public' = acceso a la API; 'openid' = identidad (userinfo)
 
 
@@ -263,6 +266,16 @@ class OAuthSession:
         if self.token.is_expired and self.token.refresh_token:
             self.set_token(refresh_token(self.token.refresh_token))
         return self.token.access_token
+
+    def access_token_or_none(self) -> str | None:
+        """Token de acceso vigente (refrescándolo si caducó) o None si no hay sesión.
+        Pensado como ``bearer_provider`` para los clientes de API/GraphQL."""
+        if not self.is_logged_in:
+            return None
+        try:
+            return self.valid_access_token()
+        except OAuthError:
+            return None
 
     def auth_header(self) -> dict:
         self.valid_access_token()

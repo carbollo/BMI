@@ -616,6 +616,11 @@ class MainWindow(QMainWindow):
             b.clicked.connect(slot)
             bar.addWidget(b)
         bar.addStretch()
+        self.login_btn = QPushButton(tr("🔑 Iniciar sesión con Nexus"))
+        self.login_btn.setToolTip(tr("Inicia sesión con tu cuenta de Nexus (OAuth oficial). "
+                                     "Con la sesión iniciada no necesitas API key."))
+        self.login_btn.clicked.connect(self._start_login)
+        bar.addWidget(self.login_btn)
         self.dl_current_btn = QPushButton(tr("Descargar este mod"))
         self.dl_current_btn.setIcon(icons.icon("download", "#1a1207"))
         self.dl_current_btn.setProperty("variant", "primary")
@@ -627,7 +632,56 @@ class MainWindow(QMainWindow):
         lay.addLayout(bar)
         lay.addWidget(self.webview, 1)
         self.webview.urlChanged.connect(self._on_webview_url_changed)
+        self.webview.oauth_redirect.connect(self._on_oauth_redirect)
+        self._refresh_login_btn()
         return w
+
+    def _refresh_login_btn(self) -> None:
+        if getattr(self.manager, "is_logged_in", False):
+            self.login_btn.setText(tr("✓ Sesión de Nexus iniciada"))
+            self.login_btn.setToolTip(tr("Sesión iniciada. Pulsa para cerrar sesión."))
+        else:
+            self.login_btn.setText(tr("🔑 Iniciar sesión con Nexus"))
+            self.login_btn.setToolTip(tr("Inicia sesión con tu cuenta de Nexus (OAuth oficial)."))
+
+    def _start_login(self) -> None:
+        if self.manager.is_logged_in:
+            if QMessageBox.question(self, tr("Nexus"),
+                                    tr("¿Cerrar la sesión de Nexus?")) == QMessageBox.StandardButton.Yes:
+                self.manager.logout()
+                self._refresh_login_btn()
+                self._status(tr("Sesión de Nexus cerrada."))
+            return
+        try:
+            flow, url = self.manager.start_login()
+        except Exception as e:  # noqa: BLE001
+            QMessageBox.warning(self, tr("Iniciar sesión"), str(e))
+            return
+        self._login_flow = flow
+        from PySide6.QtCore import QUrl
+        self.webview.setUrl(QUrl(url))
+        self._status(tr("Inicia sesión en Nexus en el navegador de arriba…"))
+
+    def _on_oauth_redirect(self, url: str) -> None:
+        flow = getattr(self, "_login_flow", None)
+        if not flow:
+            return
+        self._login_flow = None
+        try:
+            info = self.manager.complete_login(flow, url)
+        except Exception as e:  # noqa: BLE001
+            QMessageBox.warning(self, tr("Iniciar sesión"),
+                                tr("No se pudo completar el inicio de sesión:\n{e}").format(e=e))
+            return
+        self._refresh_login_btn()
+        from PySide6.QtCore import QUrl
+        self.webview.setUrl(QUrl(f"https://www.nexusmods.com/{self.config.game_domain}"))
+        name = info.get("name") or info.get("preferred_username") or ""
+        QMessageBox.information(
+            self, tr("Sesión iniciada"),
+            tr("¡Sesión iniciada en Nexus{who}! Ya puedes descargar sin API key.")
+            .format(who=(" como " + name) if name else ""))
+        self._status(tr("Sesión de Nexus iniciada."))
 
     def _on_webview_url_changed(self, qurl) -> None:
         """Activa el botón en páginas de mod o de colección, y ajusta su texto."""
