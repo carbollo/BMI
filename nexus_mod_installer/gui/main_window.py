@@ -299,6 +299,7 @@ class MainWindow(QMainWindow):
         self.home_panel.go_explore.connect(lambda: self.tabs.setCurrentWidget(self.explore_tab))
         self.downloads_panel = DownloadsPanel(manager, self)
         self.mods_panel = ModsPanel(manager)
+        self.mods_panel.translate_all_requested.connect(self._translate_all_web)
         self.log_tab = self._build_log_tab()
 
         self.tabs = QTabWidget()
@@ -689,6 +690,54 @@ class MainWindow(QMainWindow):
             tr("¡Sesión iniciada en Nexus{who}! Ya puedes descargar sin API key.")
             .format(who=(" como " + name) if name else ""))
         self._status(tr("Sesión de Nexus iniciada."))
+
+    # --- Traducir mis mods leyendo la lista OFICIAL de cada página (vía navegador) ---
+    _TR_LANG_WORDS = {
+        "es": ["spanish", "español", "espanol", "castellano"],
+        "fr": ["french", "français", "francais"],
+        "de": ["german", "deutsch"],
+        "it": ["italian", "italiano"],
+    }
+
+    def _translate_all_web(self) -> None:
+        from .translation_scan import TranslationScanner
+        lang = self.config.language or "es"
+        lang_words = self._TR_LANG_WORDS.get(lang)
+        if not lang_words:
+            return
+        mods = [(getattr(m, "game_domain", "") or self.config.game_domain, m.mod_id, m.name)
+                for m in self.manager.store.all() if getattr(m, "mod_id", 0) and m.mod_id > 0]
+        if not mods:
+            return
+        if not self.manager.is_logged_in:
+            if QMessageBox.question(
+                self, tr("Traducir mis mods"),
+                tr("No has iniciado sesión en Nexus; algunas páginas podrían no cargar. "
+                   "¿Continuar igualmente?")) != QMessageBox.StandardButton.Yes:
+                return
+        self._tr_scanner = TranslationScanner(self.webview.profile(), self)
+        self._tr_scanner.progress.connect(
+            lambda i, n: self._status(tr("Leyendo traducciones de tus mods… {i}/{n}")
+                                      .format(i=i, n=n)))
+        self._tr_scanner.finished.connect(self._on_translations_found)
+        self._status(tr("Leyendo la lista oficial de traducciones de tus mods…"))
+        self._tr_scanner.start(mods, lang_words)
+
+    def _on_translations_found(self, found) -> None:
+        seen, n = set(), 0
+        for dom, mid, name in found:
+            if mid in seen or self.manager.store.is_installed(mid):
+                continue
+            seen.add(mid)
+            self.manager.enqueue_translation_mod(dom, mid, name)
+            n += 1
+        self._status(tr("Traducciones encoladas: {n}.").format(n=n))
+        QMessageBox.information(
+            self, tr("Traducir mis mods"),
+            (tr("Se encontraron {n} traducción(es) oficial(es) a tu idioma y se encolaron en "
+                "Descargas.").format(n=n) if n else
+             tr("No se encontraron traducciones oficiales a tu idioma en las páginas de tus "
+                "mods.")))
 
     def _on_webview_url_changed(self, qurl) -> None:
         """Activa el botón en páginas de mod o de colección, y ajusta su texto."""

@@ -1,7 +1,7 @@
 """Gestor de mods: pestañas Mods · Orden de carga · Conflictos · Perfiles."""
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, QTimer, QSize
+from PySide6.QtCore import Qt, QTimer, QSize, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTabWidget, QTableWidget, QTableWidgetItem,
@@ -35,6 +35,8 @@ def _centered(widget: QWidget) -> QWidget:
 
 
 class ModsPanel(QWidget):
+    translate_all_requested = Signal()   # el usuario pidió traducir todos sus mods (vía web)
+
     _CAT_COLOR = {
         "externo": theme.SUCCESS, "gestionado": theme.INFO,
         "cc": "#a371f7", "vanilla": theme.TEXT_DIM,
@@ -193,7 +195,8 @@ class ModsPanel(QWidget):
             .format(p=plat_txt, lines=lines, more=more))
 
     def _translate_all(self) -> None:
-        """Busca y encola la traducción al idioma de la app de todos los mods instalados."""
+        """Pide traducir todos los mods leyendo la lista OFICIAL de traducciones de la página
+        de cada mod (vía el navegador embebido). Lo ejecuta la ventana principal."""
         mods = [m for m in self.manager.store.all() if getattr(m, "mod_id", 0) and m.mod_id > 0]
         if not mods:
             QMessageBox.information(self, tr("Traducir mis mods"),
@@ -206,17 +209,13 @@ class ModsPanel(QWidget):
             return
         ans = QMessageBox.question(
             self, tr("Traducir mis mods"),
-            tr("BMI buscará en Nexus la traducción al idioma de la app de tus {n} mods "
-               "instalados y encolará las que encuentre.\n\nCon cuenta gratuita, cada "
-               "traducción pedirá un clic en la web (aparecerán en Descargas como «Requiere "
-               "clic en web»). ¿Continuar?").format(n=len(mods)))
+            tr("BMI abrirá la página de cada uno de tus {n} mods en su navegador para leer su "
+               "lista OFICIAL de traducciones («Translations available on the Nexus») y "
+               "encolar la de tu idioma si existe.\n\nTarda un poco (una página por mod) e "
+               "conviene tener la sesión de Nexus iniciada. ¿Continuar?").format(n=len(mods)))
         if ans != QMessageBox.StandardButton.Yes:
             return
-        self.manager.translate_installed_mods()
-        QMessageBox.information(
-            self, tr("Traducir mis mods"),
-            tr("Buscando traducciones en segundo plano. Míralo en el registro y en la "
-               "pestaña Descargas."))
+        self.translate_all_requested.emit()
 
     def _filter_mods(self) -> None:
         term = self.search_edit.text().lower().strip()

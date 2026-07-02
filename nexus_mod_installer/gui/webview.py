@@ -79,6 +79,11 @@ class NexusWebView(QWebEngineView):
 
         self.setUrl(QUrl(home_url(self._game_domain)))
 
+    def profile(self) -> QWebEngineProfile:
+        """Perfil del navegador (con la sesión/cookies del usuario). Lo comparte el escáner
+        de traducciones para poder leer las páginas de mod pasando Cloudflare."""
+        return self._profile
+
     def set_downloads_dir(self, path: str) -> None:
         self._downloads_dir = path
 

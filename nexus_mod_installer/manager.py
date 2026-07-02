@@ -719,6 +719,17 @@ class DownloadManager(QObject):
             "Revísalas en la pestaña Descargas."
         )
 
+    def enqueue_translation_mod(self, game_domain: str, mod_id: int, name: str = "") -> None:
+        """Encola un mod de traducción CONCRETO (por su id) marcado como traducción. Lo usa
+        el escáner que lee la lista oficial de traducciones de la página del mod."""
+        try:
+            fid = self._primary_file_id(game_domain, mod_id) or 0
+        except Exception:  # noqa: BLE001
+            fid = 0
+        task = DownloadTask(game_domain=game_domain, mod_id=mod_id, file_id=fid,
+                            mod_name=name, is_translation=True)
+        self.enqueue_task(task, explicit=True)
+
     def missing_requirements(self, game_domain: str, mod_id: int) -> list[tuple[str, int, int]]:
         """Requisitos (mods de Nexus) de un mod que NO están instalados ni en cola.
 
