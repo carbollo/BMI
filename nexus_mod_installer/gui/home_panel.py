@@ -291,8 +291,8 @@ class HomePanel(QWidget):
         if not cfg.is_configured:
             self.banner.show()
             self.banner.setText(
-                tr("⚠ Configuración pendiente: añade tu API Key de Nexus y la carpeta Data "
-                   "en Ajustes para empezar.")
+                tr("⚠ Configuración pendiente: indica la carpeta Data del juego en Ajustes "
+                   "e inicia sesión con Nexus (botón «Iniciar sesión con Nexus», arriba).")
             )
         elif not proto:
             self.banner.show()

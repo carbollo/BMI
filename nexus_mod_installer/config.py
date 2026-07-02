@@ -121,7 +121,9 @@ class AppConfig:
 
     @property
     def is_configured(self) -> bool:
-        return bool(self.api_key and self.game_data_path)
+        # La autenticación es por OAuth (se hace desde el botón del navegador), así que
+        # "configurado" solo requiere tener la carpeta Data del juego.
+        return bool(self.game_data_path)
 
     # ------------------------------------------------------------------
     # Multi-juego
