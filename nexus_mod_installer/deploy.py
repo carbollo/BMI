@@ -12,17 +12,32 @@ import re
 import shutil
 from pathlib import Path
 
-# Carpetas que, si aparecen, indican que estamos en la raíz "Data" del mod.
+# Carpetas que, si aparecen, indican que estamos en la raíz "Data"/"Data Files" del mod.
+# Cubre los 9 juegos, no solo Skyrim: el mismo instalador vale para todos.
 _DATA_MARKERS = {
+    # Comunes Skyrim/Fallout (Creation Engine)
     "meshes", "textures", "scripts", "sound", "music", "interface",
-    "seq", "scripts", "source", "skse", "shadersfx", "lodsettings",
-    "grass", "dialogueviews", "facegen", "actors", "calientetools",
-    "strings", "video", "materials", "dyndolod", "netscriptframework",
+    "seq", "source", "shadersfx", "lodsettings", "grass", "dialogueviews",
+    "facegen", "actors", "strings", "video", "materials", "vis", "mcm",
+    # Runtimes de script extender (uno por juego)
+    "skse", "f4se", "nvse", "fose", "obse", "sfse", "mwse",
+    # Herramientas que empaquetan datos con su carpeta
+    "calientetools", "dyndolod", "netscriptframework", "nemesis_engine",
+    # Oblivion / Fallout 3 / New Vegas (Gamebryo)
+    "menus", "distantlod", "trees", "shaders", "fonts", "characters",
+    # Morrowind (TES3)
+    "icons", "bookart", "splash", "distantland", "mwse-lua", "fogbin",
+    # Starfield (Creation Engine 2)
+    "planetdata", "geometries", "particles", "space",
 }
-# Extensiones de plugin que cargan en el juego.
+# Extensiones de plugin que cargan en el juego (.esl no existe en los juegos pre-Skyrim SE,
+# pero tenerlo en el set no molesta: se usa solo para reconocer una raíz de datos).
 _PLUGIN_EXTS = {".esp", ".esm", ".esl"}
+# Archivos empaquetados que viven directamente en Data: .bsa (Skyrim/Oblivion/FO3/FNV/
+# Morrowind) y .ba2 (Fallout 4 / Starfield).
+_ARCHIVE_EXTS = {".bsa", ".ba2"}
 # Extensiones que típicamente viven directamente en Data.
-_LOOSE_DATA_EXTS = {".bsa", ".esp", ".esm", ".esl", ".ini", ".bik", ".seq"}
+_LOOSE_DATA_EXTS = {".bsa", ".ba2", ".esp", ".esm", ".esl", ".ini", ".bik", ".seq"}
 
 # ---------------------------------------------------------------------------
 # Archivos de "carpeta raíz" del juego (junto al .exe), NO de Data.
@@ -76,7 +91,7 @@ def find_data_root(extracted_dir: str | os.PathLike) -> Path:
                 return True
             if e.is_file() and e.suffix.lower() in _PLUGIN_EXTS:
                 return True
-            if e.is_file() and e.suffix.lower() == ".bsa":
+            if e.is_file() and e.suffix.lower() in _ARCHIVE_EXTS:   # .bsa / .ba2
                 return True
         return False
 
@@ -93,6 +108,24 @@ def find_data_root(extracted_dir: str | os.PathLike) -> Path:
 
     # Si no se reconoce, asumimos la raíz tal cual (mod de solo texturas sueltas, etc.).
     return root
+
+
+# Subcarpetas BAIN: '00 Core', '01 Optional', '10 Textures'… (Wrye Bash/Mash). Empaquetado
+# habitual en Oblivion/Morrowind/FO3/FNV/Skyrim clásico.
+_BAIN_RE = re.compile(r"^\d{2,3}\s*[ ._-]")
+
+
+def bain_subpackages(extracted_dir: str | os.PathLike) -> list[str]:
+    """Detecta un paquete BAIN (varias subcarpetas hermanas numeradas en la raíz). BMI no
+    instala BAIN por pasos: solo despliega una carpeta. Devuelve los nombres de las
+    subcarpetas para poder AVISAR de que el mod se instala a medias (o vacío si no es BAIN)."""
+    root = Path(extracted_dir)
+    try:
+        subs = [p for p in root.iterdir() if p.is_dir()]
+    except OSError:
+        return []
+    numbered = [p.name for p in subs if _BAIN_RE.match(p.name)]
+    return sorted(numbered) if len(numbered) >= 2 else []
 
 
 def list_plugins(data_root: str | os.PathLike) -> list[str]:
@@ -275,10 +308,16 @@ def undeploy_root(deployed_root_files: list[str], game_root_path: str | os.PathL
 # ---------------------------------------------------------------------------
 # Gestión de plugins.txt (qué plugins se cargan)
 # ---------------------------------------------------------------------------
-def enable_plugins(plugins_txt_path: str | os.PathLike, plugin_names: list[str]) -> None:
-    """Activa plugins en plugins.txt (formato SSE: '*Nombre.esp' = activado).
+def enable_plugins(plugins_txt_path: str | os.PathLike, plugin_names: list[str],
+                   star_prefix: bool = True) -> None:
+    """Activa plugins en plugins.txt sin duplicar entradas ya presentes.
 
-    No duplica entradas ya presentes.
+    ``star_prefix`` según el juego (games.GameInfo.star_prefix):
+      - True  (Skyrim SE/AE, Fallout 4, Starfield): activado = '*Nombre.esp'; el orden de las
+        líneas ES el orden de carga.
+      - False (Skyrim clásico, Fallout 3/NV, Oblivion): plugins.txt es una lista PLANA de
+        nombres SIN '*' (el motor no reconoce el '*': una línea '*X.esp' no activa nada). El
+        orden real lo dan los timestamps de archivo, no este fichero.
     """
     if not plugin_names:
         return
@@ -297,7 +336,7 @@ def enable_plugins(plugins_txt_path: str | os.PathLike, plugin_names: list[str])
     added = []
     for name in plugin_names:
         if name.lower() not in existing_names:
-            added.append(f"*{name}")
+            added.append(f"*{name}" if star_prefix else name)
             existing_names.add(name.lower())
 
     if added:
@@ -318,3 +357,98 @@ def disable_plugins(plugins_txt_path: str | os.PathLike, plugin_names: list[str]
             continue
         kept.append(line)
     path.write_text("\n".join(kept).strip() + "\n", encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
+# Morrowind: la activación NO va por plugins.txt sino por la sección [Game Files] de
+# Morrowind.ini (raíz del juego), con líneas 'GameFileN=nombre.esp' numeradas en orden de
+# carga. Los .esm (masters) van antes que los .esp.
+# ---------------------------------------------------------------------------
+def morrowind_ini_path(game_data_path: str | os.PathLike) -> Path | None:
+    """Morrowind.ini vive en la raíz del juego (carpeta PADRE de 'Data Files')."""
+    if not game_data_path:
+        return None
+    return Path(game_data_path).parent / "Morrowind.ini"
+
+
+def _mw_read(path: Path) -> tuple[list[str], list[str]]:
+    """Devuelve (líneas_completas, game_files_actuales_en_orden)."""
+    lines = path.read_text(encoding="cp1252", errors="ignore").splitlines() if path.is_file() else []
+    files: list[str] = []
+    in_gf = False
+    for line in lines:
+        s = line.strip()
+        low = s.lower()
+        if low.startswith("[") and low.endswith("]"):
+            in_gf = (low == "[game files]")
+            continue
+        if in_gf and low.startswith("gamefile") and "=" in s:
+            val = s.split("=", 1)[1].strip()
+            if val:
+                files.append(val)
+    return lines, files
+
+
+def _mw_write(path: Path, lines: list[str], game_files: list[str]) -> None:
+    """Reescribe la sección [Game Files] con la lista dada (renumerada), conservando el resto."""
+    out: list[str] = []
+    in_gf = False
+    wrote = False
+    gf_block = ["[Game Files]"] + [f"GameFile{i}={n}" for i, n in enumerate(game_files)]
+    for line in lines:
+        low = line.strip().lower()
+        if low.startswith("[") and low.endswith("]"):
+            if in_gf and not wrote:
+                out.extend(gf_block); wrote = True
+            in_gf = (low == "[game files]")
+            if in_gf:
+                continue          # la reescribimos entera abajo
+            out.append(line)
+            continue
+        if in_gf:
+            continue              # descarta las GameFileN viejas (y líneas sueltas de la sección)
+        out.append(line)
+    if in_gf and not wrote:       # el archivo terminaba dentro de [Game Files]
+        out.extend(gf_block); wrote = True
+    if not wrote:                 # no existía la sección: añadir al final
+        if out and out[-1].strip():
+            out.append("")
+        out.extend(gf_block)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(out).rstrip("\n") + "\n", encoding="cp1252", errors="replace")
+
+
+def _mw_is_master(name: str) -> bool:
+    return name.lower().endswith(".esm")
+
+
+def enable_plugins_morrowind(ini_path: str | os.PathLike, plugin_names: list[str]) -> list[str]:
+    """Activa plugins en [Game Files] de Morrowind.ini (sin duplicar). Mantiene los masters
+    (.esm) antes que los plugins (.esp). Devuelve los nombres realmente añadidos."""
+    if not plugin_names:
+        return []
+    path = Path(ini_path)
+    lines, files = _mw_read(path)
+    have = {f.lower() for f in files}
+    added = [n for n in plugin_names if n.lower() not in have]
+    if not added:
+        return []
+    files.extend(added)
+    # Orden estable de Morrowind: todos los .esm primero, luego los .esp (preserva el orden
+    # relativo previo dentro de cada grupo).
+    masters = [f for f in files if _mw_is_master(f)]
+    plugins = [f for f in files if not _mw_is_master(f)]
+    _mw_write(path, lines, masters + plugins)
+    return added
+
+
+def disable_plugins_morrowind(ini_path: str | os.PathLike, plugin_names: list[str]) -> None:
+    """Quita plugins de [Game Files] de Morrowind.ini."""
+    path = Path(ini_path)
+    if not path.is_file():
+        return
+    drop = {n.lower() for n in plugin_names}
+    lines, files = _mw_read(path)
+    kept = [f for f in files if f.lower() not in drop]
+    if len(kept) != len(files):
+        _mw_write(path, lines, kept)

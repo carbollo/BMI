@@ -13,12 +13,16 @@ set PY=%USERPROFILE%\miniconda3\python.exe
   --windows-icon-from-ico=icon.ico ^
   --company-name=carbollo ^
   --product-name="BMI - Bethesda Mod Installer" ^
-  --file-version=1.1.0.0 --product-version=1.1.0 ^
+  --file-version=1.2.0.0 --product-version=1.2.0 ^
   --file-description="BMI - Bethesda Mod Installer - gestor de mods de Nexus" ^
   --copyright="(c) 2026 carbollo - BMI" ^
   --include-package=nexus_mod_installer ^
   --include-module=rarfile --include-package=py7zr ^
   --nofollow-import-to=tkinter,matplotlib,pandas,scipy,IPython,notebook,pytest ^
+  --include-data-files="usvfs/usvfs_x64.dll=usvfs/usvfs_x64.dll" ^
+  --include-data-files="usvfs/usvfs_x86.dll=usvfs/usvfs_x86.dll" ^
+  --include-data-files="usvfs/usvfs_proxy_x64.exe=usvfs/usvfs_proxy_x64.exe" ^
+  --include-data-files="usvfs/usvfs_proxy_x86.exe=usvfs/usvfs_proxy_x86.exe" ^
   --lto=no --assume-yes-for-downloads --mingw64 ^
   --output-dir=build_nuitka --output-filename=BMI.exe
 

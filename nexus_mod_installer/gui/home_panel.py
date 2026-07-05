@@ -263,11 +263,12 @@ class HomePanel(QWidget):
         self.card_data.set(tr("✓ Encontrada") if data_ok else tr("✗ No configurada"),
                            ok if data_ok else bad)
 
-        # Script Extender (SKSE64/F4SE/NVSE/...)
-        skse = launcher.find_skse(cfg)
+        # Script Extender (SKSE64/F4SE/NVSE/...): detecta también los que se inyectan por dll
+        # sin loader .exe (MWSE en Morrowind, OBSE de Steam en Oblivion).
+        se_ok = launcher.extender_installed(cfg)
         se = g.script_extender or "—"
-        self.card_skse.set(f"✓ {se}" if skse else f"✗ {se}",
-                           ok if skse else theme.TEXT_DIM)
+        self.card_skse.set(f"✓ {se}" if se_ok else f"✗ {se}",
+                           ok if se_ok else theme.TEXT_DIM)
 
         # Mods
         n_mods = len(self.manager.store.all())

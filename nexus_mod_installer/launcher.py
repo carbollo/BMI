@@ -60,6 +60,65 @@ class GameLaunchError(RuntimeError):
     pass
 
 
+def _morrowind_mwse_present(gdir: Path) -> bool:
+    """MWSE no tiene loader .exe: se inyecta vía MGE XE (d3d8.dll proxy) / MWSE.dll. Detecta
+    su presencia por los archivos característicos en la carpeta del juego."""
+    for n in ("MWSE.dll", "MGEXEgui.exe"):
+        if (gdir / n).is_file():
+            return True
+    return (gdir / "Data Files" / "MWSE").is_dir()
+
+
+def _oblivion_steam_obse(gdir: Path) -> bool:
+    """Oblivion de Steam: OBSE se inyecta con obse_steam_loader.dll al lanzar Oblivion.exe
+    (obse_loader.exe solo vale para GOG/retail y falla en Steam)."""
+    return (gdir / "obse_steam_loader.dll").is_file()
+
+
+def extender_installed(config: AppConfig) -> bool:
+    """¿Está disponible el script extender del juego activo? Cubre los que tienen loader .exe
+    y los que se inyectan por dll sin loader (MWSE en Morrowind, OBSE de Steam en Oblivion),
+    para que la tarjeta de estado no muestre un falso '✗' en esos juegos."""
+    if find_skse(config) is not None:
+        return True
+    g = config.game()
+    gdir = game_dir(config)
+    if gdir is None:
+        return False
+    if g.key == "morrowind":
+        return _morrowind_mwse_present(gdir)
+    if g.key == "oblivion":
+        return _oblivion_steam_obse(gdir)
+    return False
+
+
+def extender_active(config: AppConfig, exe: Path) -> bool:
+    """True si el juego se LANZÓ con su script extender activo (loader .exe lanzado, o
+    inyección por dll con el .exe del juego: OBSE de Steam / MWSE)."""
+    g = config.game()
+    if exe.name.lower() in {n.lower() for n in g.loader_exes}:
+        return True
+    gdir = game_dir(config)
+    if gdir is None:
+        return False
+    if g.key == "oblivion" and _oblivion_steam_obse(gdir):
+        return True
+    if g.key == "morrowind" and _morrowind_mwse_present(gdir):
+        return True
+    return False
+
+
+def extender_is_optional(config: AppConfig) -> bool:
+    """True cuando NO tiene sentido avisar '<SE> no encontrado': el juego no tiene un loader
+    .exe que localizar (Morrowind: MWSE se inyecta) o el extender se inyecta solo (Oblivion
+    de Steam). En esos casos lanzar el .exe del juego es lo correcto, no un fallo."""
+    g = config.game()
+    if not g.loader_exes:
+        return True
+    gdir = game_dir(config)
+    return bool(gdir and g.key == "oblivion" and _oblivion_steam_obse(gdir))
+
+
 # ---------------------------------------------------------------------------
 # Idioma del juego (sistema STRINGS de Bethesda): forzar sLanguage en los INI para que
 # el juego cargue siempre los textos en el idioma de la app (Skyrim SE/AE, Skyrim, FO4,
@@ -125,7 +184,14 @@ def enforce_game_language(config: AppConfig) -> str | None:
     fijado ('SPANISH'…) o None si el juego no usa STRINGS o el idioma es desconocido."""
     g = config.game()
     ini_base = getattr(g, "ini_base", "")
-    slang = _APP_LANG_TO_SLANG.get((getattr(config, "language", "es") or "es").lower())
+    lang_code = (getattr(config, "language", "es") or "es").lower()
+    if getattr(g, "slang_short", False):
+        # Starfield (Creation Engine 2) usa códigos cortos: sLanguage=es, no SPANISH; sus
+        # strings son Starfield_es.strings. Para es/en/fr/de/it el código coincide con el
+        # de la app. Solo se acepta si es un idioma que Starfield soporta.
+        slang = lang_code if lang_code in {"en", "fr", "de", "es", "it", "ja", "pl", "ru"} else None
+    else:
+        slang = _APP_LANG_TO_SLANG.get(lang_code)
     if not slang or not ini_base or not g.appdata_folder:
         return None
     d = _my_games_dir(g.appdata_folder)
@@ -145,6 +211,13 @@ def launch(config: AppConfig, prefer_skse: bool = True) -> Path:
     exe: Path | None = None
     if prefer_skse:
         exe = find_skse(config)
+        # Oblivion de Steam: obse_loader.exe da error con el .exe empaquetado por Steam; OBSE
+        # se carga inyectándose con obse_steam_loader.dll al lanzar Oblivion.exe. Si está ese
+        # dll, ignoramos el loader y lanzamos el juego (que carga OBSE por sí mismo).
+        if exe is not None and g.key == "oblivion":
+            gdir = game_dir(config)
+            if gdir and _oblivion_steam_obse(gdir):
+                exe = find_game_exe(config) or exe
     if exe is None:
         exe = find_game_exe(config)
     if exe is None:
@@ -170,13 +243,20 @@ def launch(config: AppConfig, prefer_skse: bool = True) -> Path:
 # ---------------------------------------------------------------------------
 # Nombre amigable -> posibles nombres de ejecutable (para autodetección).
 KNOWN_TOOLS = [
-    ("xEdit / SSEEdit", ["SSEEdit.exe", "xEdit.exe", "FO4Edit.exe", "TES5Edit.exe"]),
+    # xEdit se distribuye con el nombre del juego (todos son el mismo programa). Cubrimos
+    # los 9 juegos: SSEEdit (Skyrim SE/AE), TES5Edit (Skyrim clásico), FO4Edit (Fallout 4),
+    # FNVEdit (New Vegas), FO3Edit (Fallout 3), TES4Edit (Oblivion), SF1Edit (Starfield),
+    # TES3Edit (Morrowind) y el genérico xEdit.exe.
+    ("xEdit", ["xEdit.exe", "SSEEdit.exe", "TES5Edit.exe", "FO4Edit.exe", "FNVEdit.exe",
+               "FO3Edit.exe", "TES4Edit.exe", "SF1Edit.exe", "TES3Edit.exe"]),
     ("Nemesis", ["Nemesis Unlimited Behavior Engine.exe", "NemesisUnlimitedBehaviorEngine.exe"]),
     ("FNIS", ["GenerateFNISforUsers.exe"]),
+    ("Pandora", ["Pandora Behaviour Engine+.exe", "Pandora Behaviour Engine.exe"]),
     ("DynDOLOD", ["DynDOLODx64.exe", "DynDOLOD.exe"]),
     ("Synthesis", ["Synthesis.exe"]),
     ("BodySlide", ["BodySlide x64.exe", "BodySlide.exe"]),
-    ("Wrye Bash", ["Wrye Bash.exe"]),
+    ("Wrye Bash / Flash / Mash", ["Wrye Bash.exe", "Wrye Flash.exe", "Wrye Mash.exe"]),
+    ("MGE XE", ["MGEXEgui.exe"]),         # Morrowind
     ("LOOT", ["LOOT.exe"]),
 ]
 
@@ -253,8 +333,15 @@ def detect_tools(config: AppConfig) -> list[dict]:
     roots: list[Path] = []
     gdir = game_dir(config)
     if gdir:
+        g = config.game()
+        data_sub = g.data_subfolder or "Data"        # 'Data' o 'Data Files' (Morrowind)
+        # Carpeta del extender dentro de Data: SKSE64 -> 'SKSE' (sin la versión), F4SE -> 'F4SE'.
+        se = (g.script_extender or "").lower().rstrip("0123456789")
+        subs = ["Tools", data_sub, "modding", "mods"]
+        if se:
+            subs.append(f"{data_sub}/{se}")
         roots.append(gdir)
-        for sub in ("Tools", "Data", "Data/SKSE", "modding"):
+        for sub in subs:
             p = gdir / sub
             if p.is_dir():
                 roots.append(p)

@@ -41,7 +41,9 @@ class DownloadManager(QObject):
     needs_click = Signal(object)    # DownloadTask que requiere clic en la web
     fomod_requested = Signal(object)  # FomodRequest (la GUI muestra el asistente)
     tasks_changed = Signal()        # la lista de tareas cambió (p.ej. se quitaron varias)
-    translation_lookup = Signal(str, int, str)  # (dominio, mod_id, nombre): leer traducciones
+    # (dominio, mod_id, nombre, buscar_traducción): pedir a la GUI que lea la página del
+    # mod con el navegador embebido (traducciones oficiales y/o requisitos Requirements).
+    page_lookup = Signal(str, int, str, bool)
                                                 # oficiales de la página del mod (vía navegador)
 
     def __init__(self, config: AppConfig):
@@ -347,12 +349,16 @@ class DownloadManager(QObject):
         # 2) El mod principal (después de sus dependencias).
         self.enqueue_task(main)
 
-        # 3) La traducción al idioma de la app, para que también salga en la lista.
+        # 3) La traducción al idioma de la app y la lectura de su página (traducciones
+        #    oficiales + requisitos de Requirements), para que salgan ya en la lista.
+        want_tr = False
         if self.config.install_spanish_translation:
             try:
-                self._enqueue_translation(main)
+                want_tr = bool(self._enqueue_translation(main))
             except Exception as e:
                 self.log.emit(f"No se pudo resolver la traducción: {e}")
+        if (want_tr or self.config.resolve_dependencies) and main.mod_name:
+            self.page_lookup.emit(game_domain, mod_id, main.mod_name, want_tr)
 
     def _collect_deps(self, game_domain: str, mod_id: int,
                       _seen: set | None = None, _depth: int = 0) -> list[tuple[str, int, str]]:
@@ -505,13 +511,10 @@ class DownloadManager(QObject):
             task.progress = 100.0
             self._emit_update(task)
             # Si conocemos el mod real (descarga manual con contexto del mod),
-            # resolvemos dependencias y traducción igual que en la vía nxm://.
+            # resolvemos dependencias, traducción y página igual que en la vía nxm://.
             if task.mod_id > 0:
                 self._fill_metadata(task)
-                if self.config.resolve_dependencies:
-                    self._enqueue_dependencies(task)
-                if self.config.install_spanish_translation and not task.is_translation:
-                    self._enqueue_translation(task)
+                self._enqueue_extras(task)
             return
 
         # 1) Metadatos
@@ -573,13 +576,8 @@ class DownloadManager(QObject):
         task.progress = 100.0
         self._emit_update(task)
 
-        # 6) Dependencias
-        if self.config.resolve_dependencies:
-            self._enqueue_dependencies(task)
-
-        # 7) Traducción al español
-        if self.config.install_spanish_translation and not task.is_translation:
-            self._enqueue_translation(task)
+        # 6) Dependencias, traducción y lectura de su página (requisitos + traducciones)
+        self._enqueue_extras(task)
 
     # ------------------------------------------------------------------
     def _fill_metadata(self, task: DownloadTask) -> None:
@@ -599,6 +597,20 @@ class DownloadManager(QObject):
         except NexusApiError:
             pass
         self._emit_update(task)
+
+    def _enqueue_extras(self, task: DownloadTask) -> None:
+        """Tras instalar un mod: encola sus dependencias (GraphQL), su traducción y pide a
+        la GUI leer su página (requisitos de la sección «Nexus requirements» + traducciones
+        oficiales). Como CADA tarea encolada vuelve a pasar por aquí al completarse, el
+        proceso es RECURSIVO: los requisitos de los requisitos, y las traducciones de esos
+        requisitos, también se descargan."""
+        if self.config.resolve_dependencies:
+            self._enqueue_dependencies(task)
+        want_tr = False
+        if self.config.install_spanish_translation and not task.is_translation:
+            want_tr = self._enqueue_translation(task)
+        if (want_tr or self.config.resolve_dependencies) and task.mod_id > 0 and task.mod_name:
+            self.page_lookup.emit(task.game_domain, task.mod_id, task.mod_name, want_tr)
 
     def _enqueue_dependencies(self, task: DownloadTask) -> None:
         try:
@@ -621,12 +633,15 @@ class DownloadManager(QObject):
             )
             self.enqueue_task(dep_task)
 
-    def _enqueue_translation(self, task: DownloadTask) -> None:
-        """Encola la traducción del mod en el IDIOMA DE LA APP (config.language)."""
+    def _enqueue_translation(self, task: DownloadTask) -> bool:
+        """Encola la traducción del mod en el IDIOMA DE LA APP (config.language).
+
+        Devuelve True si además hay que buscar un mod de traducción APARTE en la lista
+        oficial de su página (lo hace el escáner web de la GUI, vía ``page_lookup``)."""
         lang = self.config.language or "es"
         lang_name = translations.NEXUS_LANGUAGE_NAME.get(lang)
         if not lang_name:
-            return
+            return False
         code = lang.upper()
 
         # 1) ¿Hay un archivo en ese idioma DENTRO del mismo mod?
@@ -646,19 +661,18 @@ class DownloadManager(QObject):
                 is_translation=True,
             )
             self.enqueue_task(tr_task)
-            return
+            return False
 
         # El inglés es el idioma base de la mayoría de mods: buscar un "mod de traducción al
         # inglés" aparte da demasiados falsos positivos (casi todo está en inglés), se omite.
         if lang == "en":
-            return
+            return False
 
         # 2) Traducción como MOD APARTE: NO se busca por nombre (impreciso, daba falsos
-        #    positivos). Pedimos a la interfaz que lea la lista OFICIAL de traducciones de la
-        #    página del mod (sección «Translations available on the Nexus», vía el navegador
-        #    embebido con la sesión del usuario) y encole la de tu idioma si existe.
-        if task.mod_id > 0 and task.mod_name:
-            self.translation_lookup.emit(task.game_domain, task.mod_id, task.mod_name)
+        #    positivos). Se lee la lista OFICIAL de traducciones de la página del mod
+        #    (sección «Translations available on the Nexus», con el navegador embebido y la
+        #    sesión del usuario); el llamante emite ``page_lookup`` si devolvemos True.
+        return bool(task.mod_id > 0 and task.mod_name)
 
     def translate_installed_mods(self) -> None:
         """Busca y encola la traducción al IDIOMA DE LA APP de TODOS los mods instalados
@@ -706,6 +720,23 @@ class DownloadManager(QObject):
         task = DownloadTask(game_domain=game_domain, mod_id=mod_id, file_id=fid,
                             mod_name=name, is_translation=True)
         self.enqueue_task(task, explicit=True)
+
+    def enqueue_requirement_mod(self, game_domain: str, mod_id: int, name: str = "") -> None:
+        """Encola un requisito CONCRETO (por su id) leído de la sección «Nexus requirements»
+        de la página de un mod. Lo usa el mismo escáner web que lee las traducciones.
+        Resuelve su archivo principal en segundo plano para no bloquear la interfaz."""
+        if mod_id <= 0 or self.store.is_installed(mod_id) or mod_id in self._inflight_mods:
+            return
+
+        def _resolve() -> None:
+            try:
+                fid = self._primary_file_id(game_domain, mod_id) or 0
+            except Exception:  # noqa: BLE001
+                fid = 0
+            self.enqueue_task(DownloadTask(game_domain=game_domain, mod_id=mod_id,
+                                           file_id=fid, mod_name=name, is_dependency=True))
+
+        threading.Thread(target=_resolve, daemon=True).start()
 
     def missing_requirements(self, game_domain: str, mod_id: int) -> list[tuple[str, int, int]]:
         """Requisitos (mods de Nexus) de un mod que NO están instalados ni en cola.

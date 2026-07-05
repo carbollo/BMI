@@ -119,6 +119,7 @@ class Installer:
 
         # 2) ¿FOMOD?
         config_xml = fomod.find_fomod_config(str(extracted))
+        root_also = None   # árbol extra donde buscar archivos de raíz (no en FOMOD)
         if config_xml is not None:
             fomod_config = fomod.parse_config(str(config_xml))
             staging = install_dir / "_data"
@@ -140,12 +141,21 @@ class Installer:
                 log("FOMOD: " + n)
         else:
             data_root = deploy.find_data_root(str(extracted))
+            root_also = extracted   # no-FOMOD: también archivos de raíz hermanos de la subcarpeta
+            # BAIN (00 Core / 01 Optional…): BMI no instala por pasos; solo despliega una
+            # carpeta. Avisar para que el usuario no crea que se instaló entero.
+            bain = deploy.bain_subpackages(str(extracted))
+            if bain:
+                log("⚠ Paquete BAIN detectado ({}). BMI instalará solo la parte principal "
+                    "«{}»; las demás debes instalarlas por separado (arrastra el .zip de "
+                    "cada carpeta) o con Wrye Bash.".format(", ".join(bain), Path(data_root).name))
 
-        # 3) Detectar plugins y archivos de carpeta raíz (Engine Fixes pt.2, ENB, SKSE…)
+        # 3) Detectar plugins y archivos de carpeta raíz (Engine Fixes pt.2, ENB, SKSE…).
+        #    Se buscan sobre el árbol QUE SE DESPLIEGA (data_root), no solo sobre _extracted:
+        #    en FOMOD data_root es el staging '_data', y en mods envueltos en una carpeta los
+        #    dll de raíz están anidados. Así se excluyen de Data y van a la raíz del juego.
         plugins = deploy.list_plugins(data_root)
-        root_files = deploy.find_root_files(
-            str(extracted), extra_names=self.config.game().loader_exes
-        )
+        root_files = self._find_root_files(Path(data_root), root_also)
 
         mod = InstalledMod(
             mod_id=task.mod_id,
@@ -220,21 +230,56 @@ class Installer:
     def _managed_dir(self, mod: InstalledMod) -> Path:
         return Path(self.config.mods_dir) / _safe_name(f"{mod.mod_id}_{mod.name}")
 
+    def _find_root_files(self, data_root: Path, also: Path | None = None):
+        """Archivos de carpeta raíz (ENB, preloader, runtime del script extender). Busca en
+        el árbol que SE DESPLIEGA (``data_root``). Si ``also`` (nivel superior de _extracted)
+        se pasa y difiere, lo escanea también, por si hay archivos de raíz como hermanos de
+        la subcarpeta de datos. ``also`` NO se pasa en FOMOD: allí solo vale el staging
+        seleccionado (escanear _extracted metería archivos de opciones no elegidas)."""
+        names = self.config.game().loader_exes
+        found: dict = {}
+        bases = {str(data_root)}
+        if also is not None and Path(also).is_dir():
+            bases.add(str(also))
+        for base in bases:
+            for src, dest in deploy.find_root_files(base, extra_names=names):
+                found[src] = dest   # dedup por origen (evita duplicar si data_root==_extracted)
+        return list(found.items())
+
     def _root_files_for(self, mod: InstalledMod):
-        """Re-localiza los archivos de carpeta raíz desde la carpeta gestionada del
-        mod (para re-desplegarlos al reactivarlo)."""
-        extracted = self._managed_dir(mod) / "_extracted"
-        if extracted.is_dir():
-            return deploy.find_root_files(
-                str(extracted), extra_names=self.config.game().loader_exes
-            )
+        """Re-localiza los archivos de carpeta raíz desde la carpeta gestionada del mod (para
+        re-desplegarlos al reactivarlo). Escanea el árbol desplegado (install_dir); no puede
+        saber si fue FOMOD, así que se ciñe a lo desplegado (conservador y correcto)."""
+        data_root = Path(mod.install_dir)
+        if data_root.is_dir():
+            return self._find_root_files(data_root)
         return []
 
     def _enable_plugins(self, plugins: list[str], log) -> None:
+        # Morrowind no usa plugins.txt: se activa en [Game Files] de Morrowind.ini.
+        if not self.config.game().uses_plugins_txt:
+            ini = deploy.morrowind_ini_path(self.config.game_data_path)
+            if ini is None:
+                return
+            added = deploy.enable_plugins_morrowind(ini, plugins)
+            if added:
+                log(f"Plugins activados en Morrowind.ini: {', '.join(added)}")
+            return
         if not self.config.plugins_txt_path:
             return
-        deploy.enable_plugins(self.config.plugins_txt_path, plugins)
+        deploy.enable_plugins(self.config.plugins_txt_path, plugins,
+                              star_prefix=self.config.game().star_prefix)
         log(f"Plugins activados en plugins.txt: {', '.join(plugins)}")
+
+    def _disable_plugins(self, plugins: list[str], log) -> None:
+        """Desactiva plugins (plugins.txt o Morrowind.ini según el juego)."""
+        if not self.config.game().uses_plugins_txt:
+            ini = deploy.morrowind_ini_path(self.config.game_data_path)
+            if ini is not None:
+                deploy.disable_plugins_morrowind(ini, plugins)
+            return
+        if self.config.plugins_txt_path:
+            deploy.disable_plugins(self.config.plugins_txt_path, plugins)
 
     # ------------------------------------------------------------------
     def set_mod_enabled(self, mod_id: int, enabled: bool, log=lambda m: None) -> bool:
@@ -255,8 +300,8 @@ class Installer:
                 # Re-desplegar lo convierte en el último escritor en disco: actualiza la
                 # fecha para que la detección de conflictos acierte el ganador.
                 mod.installed_at = time.time()
-            if self.config.auto_enable_plugins and mod.plugins and self.config.plugins_txt_path:
-                deploy.enable_plugins(self.config.plugins_txt_path, mod.plugins)
+            if self.config.auto_enable_plugins and mod.plugins:
+                self._enable_plugins(mod.plugins, log)
             log(f"Activado: {mod.name} ({len(mod.deployed_files)} archivos desplegados)")
         else:
             if mod.deployed_files and self.config.game_data_path:
@@ -266,8 +311,8 @@ class Installer:
                 groot = self._game_root()
                 if groot:
                     deploy.undeploy_root(mod.deployed_root_files, groot)
-            if mod.plugins and self.config.plugins_txt_path:
-                deploy.disable_plugins(self.config.plugins_txt_path, mod.plugins)
+            if mod.plugins:
+                self._disable_plugins(mod.plugins, log)
         mod.enabled = enabled
         self.store.save()
         return True
@@ -466,8 +511,8 @@ class Installer:
             if groot:
                 r2 = deploy.undeploy_root(mod.deployed_root_files, groot)
                 log(f"Eliminados {r2} archivos de la carpeta raíz del juego.")
-        if mod.plugins and self.config.plugins_txt_path:
-            deploy.disable_plugins(self.config.plugins_txt_path, mod.plugins)
+        if mod.plugins:
+            self._disable_plugins(mod.plugins, log)
         # Borrar carpeta gestionada
         try:
             base = Path(self.config.mods_dir) / _safe_name(

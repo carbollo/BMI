@@ -32,6 +32,7 @@ class GameInfo:
     data_subfolder: str = "Data"          # "Data" o "Data Files" (Morrowind)
     appdata_folder: str = ""              # bajo %LOCALAPPDATA% (plugins.txt) y My Games (INI)
     ini_base: str = ""                    # base del INI para sLanguage (p.ej. 'Skyrim'); '' = sin STRINGS
+    slang_short: bool = False             # sLanguage usa código corto ('es') en vez de 'SPANISH' (Starfield)
     uses_plugins_txt: bool = True         # gestiona activación vía plugins.txt
     star_prefix: bool = True              # plugins.txt usa '*' y el orden importa
     nexus_domain: str = ""                # dominio de Nexus (vacío = igual que key)
@@ -113,7 +114,7 @@ GAMES: dict[str, GameInfo] = {
         ),
         cc_prefix=None, script_extender="SFSE", loader_exes=("sfse_loader.exe",),
         game_exes=("Starfield.exe",), steam_folder="Starfield",
-        appdata_folder="Starfield", ini_base="Starfield", star_prefix=True,
+        appdata_folder="Starfield", ini_base="Starfield", slang_short=True, star_prefix=True,
     ),
     "morrowind": GameInfo(
         key="morrowind", name="Morrowind", game_id=100,
