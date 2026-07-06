@@ -128,6 +128,26 @@ def bain_subpackages(extracted_dir: str | os.PathLike) -> list[str]:
     return sorted(numbered) if len(numbered) >= 2 else []
 
 
+def looks_like_mod(folder: str | os.PathLike) -> bool:
+    """True si la carpeta contiene contenido instalable de Data (un plugin, un .bsa/.ba2 o una
+    carpeta marcador tipo meshes/textures), quizá dentro de una subcarpeta envoltorio. Sirve
+    para reconocer una carpeta de mod ya organizada (estilo MO2) al importarla a la lista."""
+    root = find_data_root(folder)
+    try:
+        entries = list(Path(root).iterdir())
+    except OSError:
+        return False
+    for e in entries:
+        try:
+            if e.is_dir() and e.name.lower() in _DATA_MARKERS:
+                return True
+            if e.is_file() and e.suffix.lower() in (_PLUGIN_EXTS | _ARCHIVE_EXTS):
+                return True
+        except OSError:
+            continue
+    return False
+
+
 def list_plugins(data_root: str | os.PathLike) -> list[str]:
     """Lista los nombres de plugin (.esp/.esm/.esl) en la raíz de datos."""
     root = Path(data_root)

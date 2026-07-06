@@ -300,6 +300,7 @@ class MainWindow(QMainWindow):
         self.downloads_panel = DownloadsPanel(manager, self)
         self.mods_panel = ModsPanel(manager)
         self.mods_panel.translate_all_requested.connect(self._translate_all_web)
+        self.mods_panel.detect_mods_requested.connect(self._detect_mods)
         # Al añadir/instalar un mod, leer su página oficial: traducciones al idioma de la
         # app y requisitos de la sección Requirements (mismo escáner web para todo).
         self.manager.page_lookup.connect(self._on_page_lookup)
@@ -334,6 +335,9 @@ class MainWindow(QMainWindow):
         manager.tasks_changed.connect(self._update_activity_badge)
 
         self._refresh_title()
+        # Al arrancar, detecta en segundo plano los mods ya presentes en la carpeta de mods
+        # (estilo MO2). Diferido para no ralentizar el arranque de la ventana.
+        QTimer.singleShot(1500, self._auto_import_mods)
 
     # ------------------------------------------------------------------
     def _build_log_tab(self) -> QWidget:
@@ -765,6 +769,36 @@ class MainWindow(QMainWindow):
         self._get_tr_scanner().add([(dom or self.config.game_domain, mid, name)],
                                    want_translations=want_tr, want_requirements=want_req)
 
+    def _auto_import_mods(self) -> None:
+        """Detecta en silencio los mods ya presentes en la «Carpeta de mods» (estilo MO2) y
+        los añade a la lista. Se llama al arrancar, al cambiar de juego y al cambiar la carpeta
+        en Ajustes. Solo refresca si encuentra alguno nuevo."""
+        try:
+            n = self.manager.import_external_mods()
+        except Exception:  # noqa: BLE001
+            return
+        if n:
+            self.mods_panel.refresh()
+            self.home_panel.refresh(self.mods_panel._scan_cache)
+            self._status(tr("{n} mod(s) detectados en la carpeta e importados a la lista.")
+                         .format(n=n))
+
+    def _detect_mods(self) -> None:
+        """Botón «Detectar mods de la carpeta»: escanea y avisa del resultado (también si 0)."""
+        n = self.manager.import_external_mods()
+        self.mods_panel.refresh()
+        self.home_panel.refresh(self.mods_panel._scan_cache)
+        if n:
+            QMessageBox.information(
+                self, tr("Detectar mods de la carpeta"),
+                tr("Se detectaron e importaron {n} mod(s) de la carpeta.").format(n=n))
+        else:
+            QMessageBox.information(
+                self, tr("Detectar mods de la carpeta"),
+                tr("No se encontraron mods nuevos en la «Carpeta de mods» ({dir}).\n\nColoca "
+                   "cada mod en su propia subcarpeta (estructura estilo MO2) y vuelve a probar.")
+                .format(dir=self.config.mods_dir))
+
     def _on_webview_url_changed(self, qurl) -> None:
         """Activa el botón en páginas de mod o de colección, y ajusta su texto."""
         url = qurl.toString()
@@ -885,6 +919,7 @@ class MainWindow(QMainWindow):
 
     def _open_settings(self) -> None:
         vfs_before = getattr(self.config, "vfs_mode", False)
+        mods_dir_before = self.config.mods_dir
         dlg = SettingsDialog(self.config, self)
         if dlg.exec():
             dlg.apply_to_config()
@@ -894,6 +929,9 @@ class MainWindow(QMainWindow):
             self.manager.update_credentials()
             self.mods_panel.refresh()
             self.home_panel.refresh(self.mods_panel._scan_cache)
+            # Si cambió la carpeta de mods, detecta los que ya haya ahí (estilo MO2).
+            if self.config.mods_dir != mods_dir_before:
+                self._auto_import_mods()
             if dlg.language_changed():
                 QMessageBox.information(
                     self, tr("Idioma cambiado"),
@@ -981,6 +1019,7 @@ class MainWindow(QMainWindow):
         self.webview.set_game_domain(self.config.game().domain)
         self.mods_panel.refresh()
         self.home_panel.refresh(self.mods_panel._scan_cache)
+        self._auto_import_mods()   # detecta mods ya presentes en la carpeta del juego nuevo
         self._refresh_play_btn()
         self._refresh_title()
         self._status(f"Juego activo: {self.config.game().name}")

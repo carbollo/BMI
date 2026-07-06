@@ -45,6 +45,7 @@ class DownloadManager(QObject):
     # mod con el navegador embebido (traducciones oficiales y/o requisitos Requirements).
     page_lookup = Signal(str, int, str, bool)
                                                 # oficiales de la página del mod (vía navegador)
+    mods_imported = Signal(int)     # nº de mods detectados e importados de la carpeta de mods
 
     def __init__(self, config: AppConfig):
         super().__init__()
@@ -709,6 +710,31 @@ class DownloadManager(QObject):
             f"🌐 Traducir mis mods: {queued} traducción(es) encolada(s) de {len(mods)} mod(s). "
             "Revísalas en la pestaña Descargas."
         )
+
+    def import_external_mods(self) -> int:
+        """Detecta mods ya presentes en la carpeta de mods (estilo MO2) y los añade a la lista
+        ACTIVADOS y SIN desplegar (se virtualizan solos en Modo VFS). No re-añade los que ya
+        están. Devuelve cuántos nuevos se importaron."""
+        from . import importer
+        known_ids = set(self.store.mods.keys())
+        known_dirs = [m.install_dir for m in self.store.all()]
+        try:
+            new = importer.scan_mods_folder(
+                self.config.mods_dir, self.config.game_domain, known_ids, known_dirs)
+        except Exception as e:  # noqa: BLE001
+            self.log.emit(f"No se pudieron detectar mods de la carpeta: {e}")
+            return 0
+        if not new:
+            return 0
+        for m in new:
+            self.store.mods[m.mod_id] = m
+        self.store.save()
+        self.log.emit(
+            f"🔎 {len(new)} mod(s) detectados en la carpeta e importados a la lista: "
+            + ", ".join(m.name for m in new[:8]) + ("…" if len(new) > 8 else "")
+        )
+        self.mods_imported.emit(len(new))
+        return len(new)
 
     def enqueue_translation_mod(self, game_domain: str, mod_id: int, name: str = "") -> None:
         """Encola un mod de traducción CONCRETO (por su id) marcado como traducción. Lo usa

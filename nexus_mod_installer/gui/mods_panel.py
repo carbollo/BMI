@@ -36,6 +36,7 @@ def _centered(widget: QWidget) -> QWidget:
 
 class ModsPanel(QWidget):
     translate_all_requested = Signal()   # el usuario pidió traducir todos sus mods (vía web)
+    detect_mods_requested = Signal()     # el usuario pidió detectar mods de la carpeta
 
     _CAT_COLOR = {
         "externo": theme.SUCCESS, "gestionado": theme.INFO,
@@ -85,6 +86,11 @@ class ModsPanel(QWidget):
         refresh = QPushButton(tr("🔄 Actualizar"))
         refresh.clicked.connect(self.refresh)
         top.addWidget(refresh)
+        detect = QPushButton(tr("🔎 Detectar mods de la carpeta"))
+        detect.setToolTip(tr("Escanea la «Carpeta de mods» y añade a la lista los mods que ya "
+                             "tengas ahí (estructura estilo MO2), sin descargarlos"))
+        detect.clicked.connect(self.detect_mods_requested)
+        top.addWidget(detect)
         translate = QPushButton(tr("🌐 Traducir mis mods"))
         translate.setToolTip(tr("Busca en Nexus la traducción al idioma de la app de cada mod "
                                 "instalado y encola las que encuentre"))
