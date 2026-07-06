@@ -7,7 +7,10 @@ REM  Resultado: build_nuitka\BMI.exe  ->  dist\BMI.exe
 REM  Requiere: pip install nuitka  (y un compilador; Nuitka baja MinGW).
 REM ===================================================================
 cd /d "%~dp0"
-set PY=%USERPROFILE%\miniconda3\python.exe
+REM Detecta Python: Miniconda, Anaconda o el 'python' del PATH (para compilar en cualquier PC).
+set "PY=%USERPROFILE%\miniconda3\python.exe"
+if not exist "%PY%" if exist "%USERPROFILE%\anaconda3\python.exe" set "PY=%USERPROFILE%\anaconda3\python.exe"
+if not exist "%PY%" set "PY=python"
 
 "%PY%" -m nuitka run.py ^
   --onefile --enable-plugin=pyside6 --windows-console-mode=disable ^

@@ -55,14 +55,16 @@ extender (SKSE64/F4SE/NVSE/FOSE/OBSE/SFSE…), y los mods se guardan por separad
 **sin instalar nada ni permisos de administrador**. La configuración se guarda en
 `%APPDATA%\BMI`. Pesa ~128 MB (incluye el navegador Chromium de QtWebEngine); el **primer
 arranque** tarda unos segundos en descomprimirse. Compilado con **Nuitka**
-(`build_protegido.bat`).
+(`build_protegido.bat`). También hay **instalador** (`BMI-Setup.exe`, con accesos directos y
+desinstalador). Para compilarlo tú mismo en cualquier PC, mira **[BUILD.md](BUILD.md)**.
 
 ## Ejecutar desde el código (desarrollo)
 
 Requiere **Python 3.10+**.
 
 ```powershell
-cd "C:\Users\eziog\Desktop\Google Antigravity proyectos\programas\sin bot"
+git clone https://github.com/carbollo/BMI.git
+cd BMI
 pip install -r requirements.txt
 python run.py
 ```
@@ -72,9 +74,10 @@ python run.py
 
 ## Uso (resumen)
 
-1. **Primer arranque**: un asistente te guía → elige idioma y juego, pega tu **API Key** de
-   Nexus (https://www.nexusmods.com/users/myaccount?tab=api, sección *Personal API Key*),
-   indica la carpeta **`Data`** del juego y **Registra el protocolo nxm://**.
+1. **Primer arranque**: un asistente te guía → elige idioma y juego, indica la carpeta
+   **`Data`** del juego y **Registra el protocolo nxm://**. Para descargar, **inicia sesión
+   con tu cuenta de Nexus** (botón *"Iniciar sesión con Nexus"*, login **OAuth** oficial — ya
+   no hace falta pegar ninguna API Key).
 2. Pega la URL de un mod o colección (o navega por Nexus dentro del programa) y pulsa
    **"Mod Manager Download"** (cuenta gratis) — con Premium se descarga solo.
 3. Mira la pestaña **Descargas** para el progreso y **Mods** para gestionarlos. Pulsa

@@ -1,0 +1,9 @@
+# Dependencias SOLO para COMPILAR el .exe (no hacen falta para ejecutar desde el código).
+# Instálalas además de requirements.txt:  pip install -r requirements-build.txt
+#
+# Nuitka compila el Python a C. En el primer build descarga solo el compilador MinGW-w64
+# (por eso el .bat pasa --mingw64 --assume-yes-for-downloads); no necesitas instalar nada más.
+
+nuitka>=2.4            # Compilador Python -> C  (lo usa build_protegido.bat)
+ordered-set>=4.1       # acelera la compilación de Nuitka
+zstandard>=0.22        # compresión del onefile de Nuitka
