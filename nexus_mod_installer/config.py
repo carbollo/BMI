@@ -86,6 +86,9 @@ class AppConfig:
     # Modo VFS (experimental, estilo MO2): virtualiza los mods al jugar; Data queda limpia.
     vfs_mode: bool = False
     vfs_dir: str = ""        # carpeta con usvfs_x64.dll (vacío = autodetectar)
+    # Autoactualización desde GitHub
+    check_updates: bool = True     # comprobar si hay versión nueva al arrancar
+    skip_update_version: str = ""  # tag de versión que el usuario pidió NO volver a avisar
 
     # ------------------------------------------------------------------
     @staticmethod

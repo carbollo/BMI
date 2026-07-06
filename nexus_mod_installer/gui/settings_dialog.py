@@ -17,6 +17,7 @@ from . import theme
 
 class SettingsDialog(QDialog):
     detect_mods_requested = Signal()   # botón «Detectar mods de la carpeta» (lo gestiona la ventana)
+    check_updates_requested = Signal() # botón «Buscar actualizaciones» (lo gestiona la ventana)
 
     def __init__(self, config: AppConfig, parent=None):
         super().__init__(parent)
@@ -51,6 +52,8 @@ class SettingsDialog(QDialog):
         self.vfs_cb = QCheckBox(tr("Modo VFS (experimental): NO copiar a Data; virtualizar los "
                                    "mods al jugar y mantener Data limpia (estilo MO2)"))
         self.vfs_cb.setChecked(getattr(config, "vfs_mode", False))
+        self.check_updates_cb = QCheckBox(tr("Buscar actualizaciones de BMI al arrancar"))
+        self.check_updates_cb.setChecked(getattr(config, "check_updates", True))
         self.fomod_combo = QComboBox()
         self.fomod_combo.addItem(tr("Interactivo (elegir opciones)"), "interactive")
         self.fomod_combo.addItem(tr("Automático (obligatorias + recomendadas)"), "auto")
@@ -146,8 +149,11 @@ class SettingsDialog(QDialog):
         form.addRow(tr("Método de despliegue a Data:"), self.deploy_combo)
         form.addRow(tr("Instaladores FOMOD:"), self.fomod_combo)
         for cb in (self.auto_deploy_cb, self.auto_plugins_cb, self.deps_cb, self.spanish_cb,
-                   self.force_lang_cb, self.variant_cb, self.vfs_cb):
+                   self.force_lang_cb, self.variant_cb, self.vfs_cb, self.check_updates_cb):
             form.addRow("", cb)
+        upd_btn = QPushButton(tr("🔄 Buscar actualizaciones ahora"))
+        upd_btn.clicked.connect(self.check_updates_requested)
+        form.addRow("", upd_btn)
         return w
 
     def _tab_protocol(self) -> QWidget:
@@ -219,6 +225,7 @@ class SettingsDialog(QDialog):
         self.config.force_game_language = self.force_lang_cb.isChecked()
         self.config.block_wrong_variant = self.variant_cb.isChecked()
         self.config.vfs_mode = self.vfs_cb.isChecked()
+        self.config.check_updates = self.check_updates_cb.isChecked()
         self.config.fomod_mode = self.fomod_combo.currentData() or "interactive"
         self.config.language = self.lang_combo.currentData() or "es"
         self.config.ensure_dirs()
