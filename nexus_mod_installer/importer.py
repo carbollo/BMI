@@ -135,5 +135,6 @@ def scan_mods_folder(mods_dir, game_domain: str, known_ids, known_dirs) -> list[
             installed_at=mtime,
             size_bytes=_dir_size(sub),
             category="Importados",
+            imported=True,
         ))
     return found

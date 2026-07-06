@@ -1,6 +1,7 @@
 """Diálogo de Ajustes (con pestañas)."""
 from __future__ import annotations
 
+from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QDialog, QFormLayout, QLineEdit, QPushButton, QFileDialog, QComboBox,
     QCheckBox, QHBoxLayout, QVBoxLayout, QLabel, QWidget, QMessageBox, QSpinBox,
@@ -15,6 +16,8 @@ from . import theme
 
 
 class SettingsDialog(QDialog):
+    detect_mods_requested = Signal()   # botón «Detectar mods de la carpeta» (lo gestiona la ventana)
+
     def __init__(self, config: AppConfig, parent=None):
         super().__init__(parent)
         self.config = config
@@ -123,7 +126,18 @@ class SettingsDialog(QDialog):
                     self._with_button(self.downloads_edit, self._dir_btn(self.downloads_edit)))
         form.addRow(tr("Carpeta de mods (gestionados):"),
                     self._with_button(self.mods_edit, self._dir_btn(self.mods_edit)))
+        detect_btn = QPushButton(tr("🔎 Detectar mods de la carpeta"))
+        detect_btn.setToolTip(tr("Escanea esta carpeta y añade a la lista los mods que ya tengas "
+                                 "ahí (estructura estilo MO2), sin descargarlos. También quita "
+                                 "los que hayas sacado de la carpeta."))
+        detect_btn.clicked.connect(self._detect_mods_now)
+        form.addRow("", detect_btn)
         return w
+
+    def _detect_mods_now(self) -> None:
+        """Aplica la ruta escrita a la config y pide a la ventana que escanee la carpeta."""
+        self.config.mods_dir = self.mods_edit.text().strip()
+        self.detect_mods_requested.emit()
 
     def _tab_install(self) -> QWidget:
         w = QWidget(); form = QFormLayout(w)

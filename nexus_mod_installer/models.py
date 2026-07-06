@@ -202,6 +202,7 @@ class InstalledMod:
     hidden_files: list[str] = field(default_factory=list)  # archivos ocultos (no desplegados)
     priority: int = 0                  # prioridad de sobrescritura (mayor = gana conflictos)
     category: str = ""                 # categoría/separador para agrupar en la lista
+    imported: bool = False             # detectado de una carpeta externa (estilo MO2), no bajado por BMI
 
     def to_dict(self) -> dict:
         return {
@@ -221,6 +222,7 @@ class InstalledMod:
             "hidden_files": self.hidden_files,
             "priority": self.priority,
             "category": self.category,
+            "imported": self.imported,
         }
 
     @classmethod
@@ -242,4 +244,5 @@ class InstalledMod:
             hidden_files=list(d.get("hidden_files", [])),
             priority=int(d.get("priority", 0) or 0),
             category=d.get("category", "") or "",
+            imported=bool(d.get("imported", False)),
         )

@@ -300,7 +300,6 @@ class MainWindow(QMainWindow):
         self.downloads_panel = DownloadsPanel(manager, self)
         self.mods_panel = ModsPanel(manager)
         self.mods_panel.translate_all_requested.connect(self._translate_all_web)
-        self.mods_panel.detect_mods_requested.connect(self._detect_mods)
         # Al añadir/instalar un mod, leer su página oficial: traducciones al idioma de la
         # app y requisitos de la sección Requirements (mismo escáner web para todo).
         self.manager.page_lookup.connect(self._on_page_lookup)
@@ -770,28 +769,36 @@ class MainWindow(QMainWindow):
                                    want_translations=want_tr, want_requirements=want_req)
 
     def _auto_import_mods(self) -> None:
-        """Detecta en silencio los mods ya presentes en la «Carpeta de mods» (estilo MO2) y
-        los añade a la lista. Se llama al arrancar, al cambiar de juego y al cambiar la carpeta
-        en Ajustes. Solo refresca si encuentra alguno nuevo."""
+        """Sincroniza en silencio la lista con la «Carpeta de mods» (estilo MO2): añade los
+        nuevos y quita los importados que ya no están. Se llama al arrancar, al cambiar de
+        juego y al cambiar la carpeta en Ajustes. Solo refresca si algo cambió."""
         try:
-            n = self.manager.import_external_mods()
+            added, removed = self.manager.import_external_mods()
         except Exception:  # noqa: BLE001
             return
-        if n:
+        if added or removed:
             self.mods_panel.refresh()
             self.home_panel.refresh(self.mods_panel._scan_cache)
-            self._status(tr("{n} mod(s) detectados en la carpeta e importados a la lista.")
-                         .format(n=n))
+            if added and removed:
+                self._status(tr("{a} mod(s) detectados y {r} quitados de la lista.")
+                             .format(a=added, r=removed))
+            elif added:
+                self._status(tr("{n} mod(s) detectados en la carpeta e importados a la lista.")
+                             .format(n=added))
+            else:
+                self._status(tr("{n} mod(s) importados quitados (ya no están en la carpeta).")
+                             .format(n=removed))
 
     def _detect_mods(self) -> None:
-        """Botón «Detectar mods de la carpeta»: escanea y avisa del resultado (también si 0)."""
-        n = self.manager.import_external_mods()
+        """«Detectar mods de la carpeta» (botón de Ajustes): sincroniza y avisa del resultado."""
+        added, removed = self.manager.import_external_mods()
         self.mods_panel.refresh()
         self.home_panel.refresh(self.mods_panel._scan_cache)
-        if n:
+        if added or removed:
             QMessageBox.information(
                 self, tr("Detectar mods de la carpeta"),
-                tr("Se detectaron e importaron {n} mod(s) de la carpeta.").format(n=n))
+                tr("Se detectaron {a} mod(s) nuevos y se quitaron {r} que ya no estaban.")
+                .format(a=added, r=removed))
         else:
             QMessageBox.information(
                 self, tr("Detectar mods de la carpeta"),
@@ -921,6 +928,8 @@ class MainWindow(QMainWindow):
         vfs_before = getattr(self.config, "vfs_mode", False)
         mods_dir_before = self.config.mods_dir
         dlg = SettingsDialog(self.config, self)
+        # Botón «Detectar mods de la carpeta» dentro de Ajustes (bajo la carpeta de mods).
+        dlg.detect_mods_requested.connect(self._detect_mods)
         if dlg.exec():
             dlg.apply_to_config()
             if getattr(self.config, "vfs_mode", False) and not vfs_before:

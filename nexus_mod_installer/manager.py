@@ -711,11 +711,42 @@ class DownloadManager(QObject):
             "Revísalas en la pestaña Descargas."
         )
 
-    def import_external_mods(self) -> int:
-        """Detecta mods ya presentes en la carpeta de mods (estilo MO2) y los añade a la lista
-        ACTIVADOS y SIN desplegar (se virtualizan solos en Modo VFS). No re-añade los que ya
-        están. Devuelve cuántos nuevos se importaron."""
+    @staticmethod
+    def _is_imported(mod) -> bool:
+        """¿Es un mod DETECTADO de la carpeta (estilo MO2), no bajado por BMI? Los bajados por
+        BMI tienen id de Nexus (>0) y no llevan la marca; los importados llevan el flag, o (para
+        stores antiguos) la categoría «Importados» o un id sintético negativo."""
+        return bool(getattr(mod, "imported", False) or mod.category == "Importados"
+                    or mod.mod_id < 0)
+
+    def _prune_missing_imported(self) -> int:
+        """Quita de la lista los mods IMPORTADOS cuya carpeta ya no existe (el usuario los sacó
+        de la carpeta de mods). No toca los mods bajados por BMI. Si alguno estaba desplegado,
+        retira sus archivos de Data para no dejar huérfanos."""
+        from pathlib import Path
+        from . import deploy
+        gone = [m for m in self.store.all()
+                if self._is_imported(m) and m.install_dir and not Path(m.install_dir).exists()]
+        for m in gone:
+            if m.deployed_files and self.config.game_data_path:
+                try:
+                    deploy.undeploy(m.deployed_files, self.config.game_data_path)
+                except Exception:  # noqa: BLE001
+                    pass
+            if m.plugins:
+                try:
+                    self.installer._disable_plugins(m.plugins, self.log.emit)
+                except Exception:  # noqa: BLE001
+                    pass
+            self.store.mods.pop(m.mod_id, None)
+        return len(gone)
+
+    def import_external_mods(self) -> tuple[int, int]:
+        """Sincroniza la lista con la carpeta de mods (estilo MO2): AÑADE los mods nuevos y
+        QUITA los importados cuya carpeta ya no existe. Los añadidos quedan ACTIVADOS y SIN
+        desplegar (se virtualizan solos en Modo VFS). Devuelve (añadidos, quitados)."""
         from . import importer
+        removed = self._prune_missing_imported()
         known_ids = set(self.store.mods.keys())
         known_dirs = [m.install_dir for m in self.store.all()]
         try:
@@ -723,18 +754,21 @@ class DownloadManager(QObject):
                 self.config.mods_dir, self.config.game_domain, known_ids, known_dirs)
         except Exception as e:  # noqa: BLE001
             self.log.emit(f"No se pudieron detectar mods de la carpeta: {e}")
-            return 0
-        if not new:
-            return 0
+            new = []
         for m in new:
             self.store.mods[m.mod_id] = m
-        self.store.save()
-        self.log.emit(
-            f"🔎 {len(new)} mod(s) detectados en la carpeta e importados a la lista: "
-            + ", ".join(m.name for m in new[:8]) + ("…" if len(new) > 8 else "")
-        )
-        self.mods_imported.emit(len(new))
-        return len(new)
+        if new or removed:
+            self.store.save()
+        if new:
+            self.log.emit(
+                f"🔎 {len(new)} mod(s) detectados en la carpeta e importados a la lista: "
+                + ", ".join(m.name for m in new[:8]) + ("…" if len(new) > 8 else "")
+            )
+        if removed:
+            self.log.emit(f"🗑 {removed} mod(s) importados quitados de la lista (ya no están en la carpeta).")
+        if new or removed:
+            self.mods_imported.emit(len(new))
+        return len(new), removed
 
     def enqueue_translation_mod(self, game_domain: str, mod_id: int, name: str = "") -> None:
         """Encola un mod de traducción CONCRETO (por su id) marcado como traducción. Lo usa
