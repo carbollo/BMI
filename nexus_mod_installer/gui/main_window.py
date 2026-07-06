@@ -903,7 +903,11 @@ class MainWindow(QMainWindow):
         if updater.apply_update(path):
             QMessageBox.information(self, tr("Actualizando BMI"),
                 tr("Descarga completa. BMI se cerrará y se volverá a abrir ya actualizado."))
-            QApplication.quit()
+            self.close()
+            QApplication.processEvents()
+            # Salida INMEDIATA del proceso para que el .exe se libere y el relevo lo reemplace.
+            # (QApplication.quit() no siempre cierra del todo un onefile.)
+            os._exit(0)
         else:
             QMessageBox.warning(self, tr("Actualizar"),
                 tr("No se pudo aplicar la actualización. El nuevo archivo está en:\n{p}").format(p=path))

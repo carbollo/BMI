@@ -114,21 +114,27 @@ def download_asset(url: str, dest: str, progress_cb=None, should_cancel=None) ->
 
 def apply_update(new_exe: str) -> bool:
     """Programa el reemplazo del .exe en marcha por ``new_exe`` y su reapertura. Escribe un
-    .bat que espera a que muera este PID, mueve el nuevo sobre el actual y reabre BMI. Devuelve
-    True si lanzó el relevo (el llamador debe CERRAR la app justo después)."""
+    .bat que REINTENTA mover el nuevo sobre el actual hasta que el .exe se libere (al cerrar
+    BMI), y luego reabre BMI. No depende del PID (en un onefile el proceso que bloquea el .exe
+    no es el de Python). Devuelve True si lanzó el relevo (el llamador debe CERRAR la app YA)."""
     cur = current_exe()
     if not cur or not new_exe or not os.path.isfile(new_exe):
         return False
-    pid = os.getpid()
-    bat = os.path.join(tempfile.gettempdir(), f"bmi_update_{pid}.bat")
-    # chcp 65001 + UTF-8 para que las rutas con acentos (nombre de usuario, etc.) no se corrompan.
+    bat = os.path.join(tempfile.gettempdir(), f"bmi_update_{os.getpid()}.bat")
+    # chcp 65001 + UTF-8 para que las rutas con acentos (nombre de usuario…) no se corrompan.
+    # Reintenta el 'move' (~90 x 2s = 3 min) porque el .exe sigue bloqueado hasta que BMI cierre.
     script = (
         "@echo off\r\n"
         "chcp 65001 >nul\r\n"
-        ":wait\r\n"
-        f'tasklist /NH /FI "PID eq {pid}" 2>nul | find "{pid}" >nul && '
-        "( >nul ping -n 2 127.0.0.1 & goto wait )\r\n"
+        "set /a n=0\r\n"
+        ":retry\r\n"
         f'move /Y "{new_exe}" "{cur}" >nul 2>&1\r\n'
+        f'if not exist "{new_exe}" goto done\r\n'
+        "set /a n+=1\r\n"
+        "if %n% geq 90 goto done\r\n"
+        ">nul ping -n 2 127.0.0.1\r\n"
+        "goto retry\r\n"
+        ":done\r\n"
         f'start "" "{cur}"\r\n'
         'del "%~f0"\r\n'
     )
