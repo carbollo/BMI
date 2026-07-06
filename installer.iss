@@ -1,7 +1,8 @@
 ; ===================================================================
-;  Instalador de BMI (Inno Setup) sobre el build ONEDIR (dist\BMI\).
-;  Genera dist\BMI-Setup.exe: instala por-usuario (sin admin), crea
-;  accesos directos, registra el protocolo nxm:// y trae desinstalador.
+;  Instalador de BMI (Inno Setup) sobre el ONEFILE autoejecutable
+;  (dist\BMI.exe). Genera dist\BMI-Setup.exe: instala por-usuario (sin
+;  admin) el .exe unico, crea accesos directos, registra el protocolo
+;  nxm:// y trae desinstalador.
 ;  Compilar:  "%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe" installer.iss
 ; ===================================================================
 #define MyAppName "BMI - Bethesda Mod Installer"
@@ -10,7 +11,6 @@
 #define MyAppPublisher "carbollo"
 #define MyAppURL "https://github.com/carbollo/BMI"
 #define MyAppExe "BMI.exe"
-#define SourceDir "dist\BMI"
 
 [Setup]
 AppId={{8F3B9A2C-1D4E-4A6B-9C7D-2E5F0A1B3C4D}
@@ -47,7 +47,8 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
-Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
+; El onefile es autoejecutable y se lleva todo dentro (usvfs incluido).
+Source: "dist\BMI.exe"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{#MyAppShort}"; Filename: "{app}\{#MyAppExe}"
