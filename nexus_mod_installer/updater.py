@@ -19,8 +19,8 @@ GITHUB_API = "https://api.github.com/repos/carbollo/BMI/releases/latest"
 RELEASES_PAGE = "https://github.com/carbollo/BMI/releases/latest"
 ASSET_NAME = "BMI.exe"   # el onefile portable: sirve para reemplazar el .exe en marcha
 
-_NO_WINDOW = 0x08000000  # CREATE_NO_WINDOW
-_DETACHED = 0x00000008   # DETACHED_PROCESS
+_NO_WINDOW = 0x08000000  # CREATE_NO_WINDOW (consola OCULTA; NO usar DETACHED_PROCESS: sin
+                         # consola, cada 'ping'/'move' del .bat abriría su propia ventana)
 
 
 def _parse_version(s: str) -> tuple:
@@ -141,8 +141,7 @@ def apply_update(new_exe: str) -> bool:
     try:
         with open(bat, "w", encoding="utf-8") as f:
             f.write(script)
-        subprocess.Popen(["cmd", "/c", bat],
-                         creationflags=_NO_WINDOW | _DETACHED, close_fds=True)
+        subprocess.Popen(["cmd", "/c", bat], creationflags=_NO_WINDOW, close_fds=True)
         return True
     except Exception:  # noqa: BLE001
         return False

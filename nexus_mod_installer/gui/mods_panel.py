@@ -132,6 +132,12 @@ class ModsPanel(QWidget):
         return w
 
     def _refresh_mods(self) -> None:
+        # Poda: quita de la lista los mods IMPORTADOS cuya carpeta ya no exista (sacados de la
+        # carpeta de mods), para que desaparezcan sin tener que reiniciar.
+        try:
+            self.manager.prune_missing_imported()
+        except Exception:  # noqa: BLE001
+            pass
         # Mods GESTIONADOS por BMI (del almacén) + mods EXTERNOS detectados por el escáner
         # (plugins que no instaló BMI), para que se vean TODOS los mods instalados.
         managed = sorted(self.manager.store.all(), key=lambda m: m.name.lower())

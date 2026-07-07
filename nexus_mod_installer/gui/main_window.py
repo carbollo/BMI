@@ -914,8 +914,12 @@ class MainWindow(QMainWindow):
                 tr("No se pudo descargar la actualización. Inténtalo de nuevo o descárgala de GitHub."))
             return
         if updater.apply_update(path):
-            QMessageBox.information(self, tr("Actualizando BMI"),
-                tr("Descarga completa. BMI se cerrará y se volverá a abrir ya actualizado."))
+            # SIN diálogo modal (bloqueaba el reemplazo hasta pulsar OK): un aviso breve no
+            # bloqueante y cerramos ya. El relevo reemplaza el .exe y reabre BMI solo.
+            try:
+                self.toasts.show(tr("Actualizando a la nueva versión…"), "success")
+            except Exception:  # noqa: BLE001
+                pass
             self.close()
             QApplication.processEvents()
             # Salida INMEDIATA del proceso para que el .exe se libere y el relevo lo reemplace.

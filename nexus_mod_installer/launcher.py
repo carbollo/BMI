@@ -13,6 +13,7 @@ import sys
 from pathlib import Path
 
 from .config import AppConfig
+from .i18n import tr
 
 # Sin ventana de consola al lanzar procesos desde una app sin consola (Windows).
 _NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
@@ -301,7 +302,7 @@ def launch_vfs(config: AppConfig, store, log=lambda m: None):
     if getattr(config, "force_game_language", True):
         slang = enforce_game_language(config)
         if slang:
-            log(f"Idioma del juego fijado a {slang}.")
+            log(tr("Idioma del juego fijado a {slang}.").format(slang=slang))
 
     v = vfs.Vfs(d)
     v.create("bmi_instance")

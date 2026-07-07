@@ -738,8 +738,17 @@ class DownloadManager(QObject):
                     self.installer._disable_plugins(m.plugins, self.log.emit)
                 except Exception:  # noqa: BLE001
                     pass
+            self.log.emit(f"🗑 Mod importado quitado de la lista (ya no está en la carpeta): {m.name}")
             self.store.mods.pop(m.mod_id, None)
         return len(gone)
+
+    def prune_missing_imported(self) -> int:
+        """Poda pública (guarda si quita algo). La usa la lista de mods al refrescar, para que
+        un mod importado que sacaste de la carpeta desaparezca sin reiniciar."""
+        n = self._prune_missing_imported()
+        if n:
+            self.store.save()
+        return n
 
     def import_external_mods(self) -> tuple[int, int]:
         """Sincroniza la lista con la carpeta de mods (estilo MO2): AÑADE los mods nuevos y
