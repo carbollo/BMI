@@ -315,14 +315,15 @@ def launch_vfs(config: AppConfig, store, log=lambda m: None):
                 n += 1
         except Exception:  # noqa: BLE001
             pass
-    log(f"VFS montado: {n} mod(s) virtualizados sobre Data (Data real intacto). Lanzando {exe.name}…")
+    log(tr("VFS montado: {n} mod(s) virtualizados sobre Data (Data real intacto). Lanzando {name}…")
+        .format(n=n, name=exe.name))
     try:
         v.launch(exe, cwd=str(gdir) if gdir else None)
-        log("Juego lanzado con VFS. Espera a que lo cierres para desmontar…")
+        log(tr("Juego lanzado con VFS. Espera a que lo cierres para desmontar…"))
         v.wait_for_game()
     finally:
         v.disconnect()
-    log("Juego cerrado. VFS desmontado; tu carpeta Data sigue limpia.")
+    log(tr("Juego cerrado. VFS desmontado; tu carpeta Data sigue limpia."))
     return exe
 
 

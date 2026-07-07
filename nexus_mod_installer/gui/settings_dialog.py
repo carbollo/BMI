@@ -1,7 +1,7 @@
 """Diálogo de Ajustes (con pestañas)."""
 from __future__ import annotations
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Signal, Qt
 from PySide6.QtWidgets import (
     QDialog, QFormLayout, QLineEdit, QPushButton, QFileDialog, QComboBox,
     QCheckBox, QHBoxLayout, QVBoxLayout, QLabel, QWidget, QMessageBox, QSpinBox,
@@ -102,6 +102,12 @@ class SettingsDialog(QDialog):
         nota.setWordWrap(True)
         nota.setProperty("role", "dim")
         form.addRow("", nota)
+        # Versión actual del programa (abajo de la pestaña Cuenta).
+        from .. import __version__
+        ver = QLabel(f"BMI  ·  v{__version__}")
+        ver.setProperty("role", "dim")
+        ver.setAlignment(Qt.AlignmentFlag.AlignRight)
+        form.addRow("", ver)
         return w
 
     def _tab_language(self) -> QWidget:
