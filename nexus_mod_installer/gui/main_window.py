@@ -890,11 +890,24 @@ class MainWindow(QMainWindow):
             prog.setValue(int(done * 100 / total))
 
     def _on_dl_done(self, path: str) -> None:
+        # OJO: cerrar un QProgressDialog dispara su señal 'canceled'. Capturamos el estado de
+        # cancelación ANTES de cerrarlo y desconectamos la señal, para que cerrar el diálogo NO
+        # marque una cancelación falsa (era la causa de que no se aplicara la actualización).
+        cancelled = self._update_cancel
         prog = getattr(self, "_progress", None)
+        self._progress = None
         if prog:
+            try:
+                prog.canceled.disconnect()
+            except Exception:  # noqa: BLE001
+                pass
             prog.close()
-            self._progress = None
-        if self._update_cancel:
+        if cancelled:
+            try:
+                if path and os.path.isfile(path):
+                    os.remove(path)   # limpiar el .new si el usuario canceló de verdad
+            except OSError:
+                pass
             return
         if not path:
             QMessageBox.warning(self, tr("Actualizar"),
