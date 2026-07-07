@@ -18,6 +18,7 @@ from .models import DownloadTask, NxmLink, TaskStatus
 from .nexus_api import NexusApiClient, PremiumRequiredError, NexusApiError
 from .nexus_graphql import NexusGraphQLClient, parse_collection_url
 from .installer import Installer, InstalledModsStore
+from .i18n import tr
 from . import downloader, translations, variants, oauth
 
 
@@ -102,18 +103,17 @@ class DownloadManager(QObject):
     def logout(self) -> None:
         self.oauth.logout()
         self._is_premium = False
-        self.log.emit("Sesión de Nexus cerrada.")
+        self.log.emit(tr("Sesión de Nexus cerrada."))
 
     def _validate_credentials(self) -> None:
         try:
             user = self.api.validate()
             self._is_premium = bool(user.get("is_premium"))
-            self.log.emit(
-                f"Sesión API: {user.get('name','?')} "
-                f"({'PREMIUM' if self._is_premium else 'gratis'})."
-            )
+            tier = tr("PREMIUM") if self._is_premium else tr("gratis")
+            self.log.emit(tr("Sesión API: {name} ({tier}).")
+                          .format(name=user.get('name', '?'), tier=tier))
         except Exception as e:
-            self.log.emit(f"No se pudo validar la API key: {e}")
+            self.log.emit(tr("No se pudo validar la API key: {e}").format(e=e))
 
     def reload_for_game(self) -> None:
         """Recarga el store y el instalador para el juego activo (tras cambiar de juego)."""
@@ -122,7 +122,7 @@ class DownloadManager(QObject):
         with self._lock:
             self._inflight_mods.clear()
             self._seen.clear()
-        self.log.emit(f"🎮 Juego activo: {self.config.game().name}")
+        self.log.emit(tr("🎮 Juego activo: {name}").format(name=self.config.game().name))
 
     # ------------------------------------------------------------------
     def _fomod_chooser(self, fomod_config):
@@ -183,7 +183,8 @@ class DownloadManager(QObject):
                 or any(t.mod_id == task.mod_id and not t.cancelled
                        and t.status in self._LIVE_STATES for t in self.tasks)
             ):
-                self.log.emit(f"↩ Mod {task.mod_id} ya instalado o en cola; se omite duplicado.")
+                self.log.emit(tr("↩ Mod {id} ya instalado o en cola; se omite duplicado.")
+                              .format(id=task.mod_id))
                 dup = True
 
             if not dup:
@@ -276,10 +277,11 @@ class DownloadManager(QObject):
                 return
             link = NxmLink.parse(url)
         except ValueError as e:
-            self.log.emit(f"Enlace nxm inválido: {e}")
+            self.log.emit(tr("Enlace nxm inválido: {e}").format(e=e))
             return
         task = DownloadTask.from_nxm(link)
-        self.log.emit(f"Recibido nxm:// para mod {link.mod_id}, archivo {link.file_id}.")
+        self.log.emit(tr("Recibido nxm:// para mod {mod}, archivo {file}.")
+                      .format(mod=link.mod_id, file=link.file_id))
         self.enqueue_task(task, explicit=True)
 
     def enqueue_collection(self, url: str) -> None:
@@ -312,7 +314,8 @@ class DownloadManager(QObject):
         # 0) Dependencias leídas de la PÁGINA (Requirements/download-links): autoritativas,
         #    con su file_id exacto. Garantiza que se descargan aunque el GraphQL no las traiga.
         if self.config.resolve_dependencies and extra_deps:
-            self.log.emit(f"🔗 {len(extra_deps)} dependencia(s) leídas de la página (Requirements).")
+            self.log.emit(tr("🔗 {n} dependencia(s) leídas de la página (Requirements).")
+                          .format(n=len(extra_deps)))
             for (ddom, did, dfid, dname) in extra_deps:
                 if not did or did == mod_id:
                     continue
@@ -335,7 +338,8 @@ class DownloadManager(QObject):
             except Exception:
                 deps = []
             if deps:
-                self.log.emit(f"🔗 {len(deps)} dependencia(s) detectada(s); añadiéndolas a la lista.")
+                self.log.emit(tr("🔗 {n} dependencia(s) detectada(s); añadiéndolas a la lista.")
+                              .format(n=len(deps)))
             for g, did, dname in deps:
                 if self.store.is_installed(did) or did in self._inflight_mods:
                     continue
@@ -357,7 +361,7 @@ class DownloadManager(QObject):
             try:
                 want_tr = bool(self._enqueue_translation(main))
             except Exception as e:
-                self.log.emit(f"No se pudo resolver la traducción: {e}")
+                self.log.emit(tr("No se pudo resolver la traducción: {e}").format(e=e))
         if (want_tr or self.config.resolve_dependencies) and main.mod_name:
             self.page_lookup.emit(game_domain, mod_id, main.mod_name, want_tr)
 
@@ -413,22 +417,20 @@ class DownloadManager(QObject):
     def _resolve_collection(self, url: str) -> None:
         parsed = parse_collection_url(url)
         if not parsed:
-            self.log.emit(f"No reconozco la URL de colección: {url}")
+            self.log.emit(tr("No reconozco la URL de colección: {url}").format(url=url))
             return
         slug, revision = parsed
-        self.log.emit(f"Resolviendo colección '{slug}' (revisión {revision or 'última'})...")
+        self.log.emit(tr("Resolviendo colección '{slug}' (revisión {rev})…")
+                      .format(slug=slug, rev=revision or tr("última")))
         try:
             info = self.graphql.resolve_collection(slug, revision)
         except Exception as e:
-            self.log.emit(
-                f"No se pudo resolver la colección: {e}\n"
-                "El esquema GraphQL de Nexus pudo cambiar; revisa nexus_graphql.py."
-            )
+            self.log.emit(tr("No se pudo resolver la colección: {e}\n"
+                             "El esquema GraphQL de Nexus pudo cambiar; revisa nexus_graphql.py.")
+                          .format(e=e))
             return
-        self.log.emit(
-            f"Colección '{info.name}': {len(info.mods)} mods, "
-            f"{len(info.external)} recursos externos."
-        )
+        self.log.emit(tr("Colección '{name}': {n} mods, {ext} recursos externos.")
+                      .format(name=info.name, n=len(info.mods), ext=len(info.external)))
         for ref in info.mods:
             if ref.optional:
                 continue
@@ -441,10 +443,9 @@ class DownloadManager(QObject):
             )
             self.enqueue_task(task)
         for ext in info.external:
-            self.log.emit(
-                f"Recurso externo (descarga manual): {ext.get('name','?')} -> "
-                f"{ext.get('resourceUrl','') or ext.get('url','')}"
-            )
+            self.log.emit(tr("Recurso externo (descarga manual): {name} → {url}")
+                          .format(name=ext.get('name', '?'),
+                                  url=ext.get('resourceUrl', '') or ext.get('url', '')))
 
     # ------------------------------------------------------------------
     # Hilo de trabajo
@@ -463,14 +464,14 @@ class DownloadManager(QObject):
                 break
             try:
                 if task.cancelled:
-                    self.log.emit(f"⏭ {task.label} cancelada; se omite.")
+                    self.log.emit(tr("⏭ {label} cancelada; se omite.").format(label=task.label))
                 else:
                     self._process(task)
             except Exception as e:
                 task.status = TaskStatus.ERROR
                 task.error = str(e)
                 self._emit_update(task)
-                self.log.emit(f"ERROR en {task.label}: {e}")
+                self.log.emit(tr("ERROR en {label}: {e}").format(label=task.label, e=e))
             finally:
                 if task.mod_id > 0:
                     with self._lock:
@@ -495,10 +496,9 @@ class DownloadManager(QObject):
             f"Descarga la versión normal para Skyrim SE. Puedes desactivar este filtro en Ajustes."
         )
         self._emit_update(task)
-        self.log.emit(
-            f"🚫 {task.label}: variante {reason} incompatible con tu juego "
-            f"({where}); no se descarga. Busca la versión normal."
-        )
+        self.log.emit(tr("🚫 {label}: variante {reason} incompatible con tu juego "
+                         "({where}); no se descarga. Busca la versión normal.")
+                      .format(label=task.label, reason=reason, where=where))
         return True
 
     def _process(self, task: DownloadTask) -> None:
@@ -533,14 +533,13 @@ class DownloadManager(QObject):
             )
             self._emit_update(task)
             self.needs_click.emit(task)
-            self.log.emit(
-                f"⏳ {task.label} requiere 1 clic en la web: "
-                f"{mod_page_url(task.game_domain, task.mod_id)}"
-            )
+            self.log.emit(tr("⏳ {label} requiere 1 clic en la web: {url}")
+                          .format(label=task.label,
+                                  url=mod_page_url(task.game_domain, task.mod_id)))
             return
 
         # 3) Resolver enlace de descarga
-        self.log.emit(f"Resolviendo enlace de {task.label}...")
+        self.log.emit(tr("Resolviendo enlace de {label}…").format(label=task.label))
         try:
             url = self.api.get_download_link(
                 task.game_domain, task.mod_id, task.file_id,
@@ -567,7 +566,7 @@ class DownloadManager(QObject):
             url, self.config.downloads_dir, file_name=task.file_name or None, progress_cb=cb
         )
         task.archive_path = str(archive_path)
-        self.log.emit(f"Descargado: {archive_path.name}")
+        self.log.emit(tr("Descargado: {name}").format(name=archive_path.name))
 
         # 5) Instalar + desplegar
         self._set(task, TaskStatus.INSTALLING)
@@ -620,7 +619,8 @@ class DownloadManager(QObject):
             deps = []
         if not deps:
             return
-        self.log.emit(f"{task.label} requiere {len(deps)} mod(s); encolando dependencias...")
+        self.log.emit(tr("{label} requiere {n} mod(s); encolando dependencias…")
+                      .format(label=task.label, n=len(deps)))
         for dep in deps:
             if self.store.is_installed(dep.mod_id):
                 continue
@@ -652,7 +652,8 @@ class DownloadManager(QObject):
         )
         if same:
             fid, fname = same
-            self.log.emit(f"🌐 Traducción ({lang_name}) en el mismo mod: '{fname}'. Encolando…")
+            self.log.emit(tr("🌐 Traducción ({lang}) en el mismo mod: '{file}'. Encolando…")
+                          .format(lang=lang_name, file=fname))
             tr_task = DownloadTask(
                 game_domain=task.game_domain,
                 mod_id=task.mod_id,
@@ -681,7 +682,7 @@ class DownloadManager(QObject):
         lang = self.config.language or "es"
         lang_name = translations.NEXUS_LANGUAGE_NAME.get(lang)
         if not lang_name or lang == "en":
-            self.log.emit("Traducir mis mods: no aplica al idioma actual.")
+            self.log.emit(tr("Traducir mis mods: no aplica al idioma actual."))
             return
         threading.Thread(target=self._translate_installed_worker,
                          args=(lang_name,), daemon=True).start()
@@ -690,7 +691,8 @@ class DownloadManager(QObject):
         mods = [m for m in self.store.all()
                 if getattr(m, "mod_id", 0) and m.mod_id > 0
                 and not getattr(m, "is_translation", False)]
-        self.log.emit(f"🌐 Buscando traducción ({lang_name}) para {len(mods)} mod(s) instalado(s)…")
+        self.log.emit(tr("🌐 Buscando traducción ({lang}) para {n} mod(s) instalado(s)…")
+                      .format(lang=lang_name, n=len(mods)))
         queued = 0
         for m in mods:
             task = DownloadTask(
@@ -705,11 +707,10 @@ class DownloadManager(QObject):
                 if len(self.tasks) > before:
                     queued += 1
             except Exception as e:  # noqa: BLE001
-                self.log.emit(f"Traducción de {m.name}: error {e}")
-        self.log.emit(
-            f"🌐 Traducir mis mods: {queued} traducción(es) encolada(s) de {len(mods)} mod(s). "
-            "Revísalas en la pestaña Descargas."
-        )
+                self.log.emit(tr("Traducción de {name}: error {e}").format(name=m.name, e=e))
+        self.log.emit(tr("🌐 Traducir mis mods: {n} traducción(es) encolada(s) de {total} mod(s). "
+                         "Revísalas en la pestaña Descargas.")
+                      .format(n=queued, total=len(mods)))
 
     @staticmethod
     def _is_imported(mod) -> bool:
@@ -738,7 +739,8 @@ class DownloadManager(QObject):
                     self.installer._disable_plugins(m.plugins, self.log.emit)
                 except Exception:  # noqa: BLE001
                     pass
-            self.log.emit(f"🗑 Mod importado quitado de la lista (ya no está en la carpeta): {m.name}")
+            self.log.emit(tr("🗑 Mod importado quitado de la lista (ya no está en la carpeta): {name}")
+                          .format(name=m.name))
             self.store.mods.pop(m.mod_id, None)
         return len(gone)
 
@@ -762,19 +764,19 @@ class DownloadManager(QObject):
             new = importer.scan_mods_folder(
                 self.config.mods_dir, self.config.game_domain, known_ids, known_dirs)
         except Exception as e:  # noqa: BLE001
-            self.log.emit(f"No se pudieron detectar mods de la carpeta: {e}")
+            self.log.emit(tr("No se pudieron detectar mods de la carpeta: {e}").format(e=e))
             new = []
         for m in new:
             self.store.mods[m.mod_id] = m
         if new or removed:
             self.store.save()
         if new:
-            self.log.emit(
-                f"🔎 {len(new)} mod(s) detectados en la carpeta e importados a la lista: "
-                + ", ".join(m.name for m in new[:8]) + ("…" if len(new) > 8 else "")
-            )
+            names = ", ".join(m.name for m in new[:8]) + ("…" if len(new) > 8 else "")
+            self.log.emit(tr("🔎 {n} mod(s) detectados en la carpeta e importados a la lista: {names}")
+                          .format(n=len(new), names=names))
         if removed:
-            self.log.emit(f"🗑 {removed} mod(s) importados quitados de la lista (ya no están en la carpeta).")
+            self.log.emit(tr("🗑 {n} mod(s) importados quitados de la lista (ya no están en la carpeta).")
+                          .format(n=removed))
         if new or removed:
             self.mods_imported.emit(len(new))
         return len(new), removed
@@ -824,7 +826,8 @@ class DownloadManager(QObject):
                 continue
             fid = self._primary_file_id(r.game_domain, r.mod_id) or 0
             out.append((r.game_domain, r.mod_id, fid))
-            self.log.emit(f"   requisito que falta: {r.name or ('mod ' + str(r.mod_id))}")
+            self.log.emit(tr("   requisito que falta: {name}")
+                          .format(name=r.name or tr("mod {id}").format(id=r.mod_id)))
         return out
 
     def _primary_file_id(self, game_domain: str, mod_id: int) -> int | None:

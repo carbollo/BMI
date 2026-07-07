@@ -13,6 +13,7 @@ from pathlib import Path
 
 from .config import AppConfig
 from .models import InstalledMod, DownloadTask
+from .i18n import tr
 from . import archive, deploy, fomod, launcher
 
 
@@ -113,7 +114,7 @@ class Installer:
         install_dir.mkdir(parents=True, exist_ok=True)
 
         # 1) Extraer
-        log(f"Extrayendo {archive_path.name}...")
+        log(tr("Extrayendo {name}…").format(name=archive_path.name))
         extracted = install_dir / "_extracted"
         archive.extract(archive_path, extracted)
 
@@ -125,10 +126,10 @@ class Installer:
             staging = install_dir / "_data"
             selection = None
             if fomod_chooser is not None and fomod_config.has_choices:
-                log(f"Instalador FOMOD interactivo: {fomod_config.module_name}")
+                log(tr("Instalador FOMOD interactivo: {name}").format(name=fomod_config.module_name))
                 selection = fomod_chooser(fomod_config)  # bloquea hasta elegir (o None)
             if selection is None:
-                log("FOMOD: opciones por defecto (obligatorias + recomendadas).")
+                log(tr("FOMOD: opciones por defecto (obligatorias + recomendadas)."))
                 selection = fomod.auto_select(
                     fomod_config,
                     prefer_language=(self.config.language
@@ -138,7 +139,7 @@ class Installer:
                 fomod_config, selection, str(staging)
             )
             for n in notes:
-                log("FOMOD: " + n)
+                log(tr("FOMOD: {note}").format(note=n))
         else:
             data_root = deploy.find_data_root(str(extracted))
             root_also = extracted   # no-FOMOD: también archivos de raíz hermanos de la subcarpeta
@@ -146,9 +147,10 @@ class Installer:
             # carpeta. Avisar para que el usuario no crea que se instaló entero.
             bain = deploy.bain_subpackages(str(extracted))
             if bain:
-                log("⚠ Paquete BAIN detectado ({}). BMI instalará solo la parte principal "
-                    "«{}»; las demás debes instalarlas por separado (arrastra el .zip de "
-                    "cada carpeta) o con Wrye Bash.".format(", ".join(bain), Path(data_root).name))
+                log(tr("⚠ Paquete BAIN detectado ({bain}). BMI instalará solo la parte principal "
+                       "«{name}»; las demás debes instalarlas por separado (arrastra el .zip de "
+                       "cada carpeta) o con Wrye Bash.")
+                    .format(bain=", ".join(bain), name=Path(data_root).name))
 
         # 3) Detectar plugins y archivos de carpeta raíz (Engine Fixes pt.2, ENB, SKSE…).
         #    Se buscan sobre el árbol QUE SE DESPLIEGA (data_root), no solo sobre _extracted:
@@ -177,18 +179,21 @@ class Installer:
 
         self.store.add(mod)
         task.install_dir = str(data_root)
-        extra = f" + {len(mod.deployed_root_files)} en la raíz" if mod.deployed_root_files else ""
-        log(f"Instalado: {mod.name}  ({len(mod.deployed_files)} archivos en Data{extra})")
+        extra = (tr(" + {n} en la raíz").format(n=len(mod.deployed_root_files))
+                 if mod.deployed_root_files else "")
+        log(tr("Instalado: {name}  ({n} archivos en Data{extra})")
+            .format(name=mod.name, n=len(mod.deployed_files), extra=extra))
         return mod
 
     # ------------------------------------------------------------------
     def _deploy(self, mod: InstalledMod, root_files, log) -> tuple[list[str], list[str]]:
         if not self.config.game_data_path:
-            log("AVISO: no hay carpeta Data configurada; no se desplegó.")
+            log(tr("AVISO: no hay carpeta Data configurada; no se desplegó."))
             return [], []
         vfs = getattr(self.config, "vfs_mode", False)
-        log(f"Desplegando a {self.config.game_data_path} ({self.config.deploy_method})"
-            + (" [modo VFS: solo plugins]" if vfs else "") + "...")
+        log(tr("Desplegando a {path} ({method}){vfs}…").format(
+            path=self.config.game_data_path, method=self.config.deploy_method,
+            vfs=tr(" [modo VFS: solo plugins]") if vfs else ""))
         deployed = deploy.deploy(
             mod.install_dir, self.config.game_data_path, self.config.deploy_method,
             exclude=self._exclude_for(mod, root_files), plugins_only=vfs,
@@ -215,16 +220,17 @@ class Installer:
             return []
         groot = self._game_root()
         if not groot:
-            log("AVISO: no se localizó la carpeta raíz del juego; los archivos de "
-                "raíz (Engine Fixes parte 2 / ENB) NO se desplegaron.")
+            log(tr("AVISO: no se localizó la carpeta raíz del juego; los archivos de "
+                   "raíz (Engine Fixes parte 2 / ENB) NO se desplegaron."))
             return []
         try:
             done = deploy.deploy_root(root_files, groot, self.config.deploy_method)
         except FileNotFoundError as e:
-            log(f"AVISO: {e}")
+            log(tr("AVISO: {e}").format(e=e))
             return []
         names = ", ".join(sorted({Path(r).name for r in done}))
-        log(f"Carpeta raíz del juego ({groot}): {len(done)} archivo(s) → {names}")
+        log(tr("Carpeta raíz del juego ({root}): {n} archivo(s) → {names}")
+            .format(root=groot, n=len(done), names=names))
         return done
 
     def _managed_dir(self, mod: InstalledMod) -> Path:
@@ -263,13 +269,13 @@ class Installer:
                 return
             added = deploy.enable_plugins_morrowind(ini, plugins)
             if added:
-                log(f"Plugins activados en Morrowind.ini: {', '.join(added)}")
+                log(tr("Plugins activados en Morrowind.ini: {list}").format(list=", ".join(added)))
             return
         if not self.config.plugins_txt_path:
             return
         deploy.enable_plugins(self.config.plugins_txt_path, plugins,
                               star_prefix=self.config.game().star_prefix)
-        log(f"Plugins activados en plugins.txt: {', '.join(plugins)}")
+        log(tr("Plugins activados en plugins.txt: {list}").format(list=", ".join(plugins)))
 
     def _disable_plugins(self, plugins: list[str], log) -> None:
         """Desactiva plugins (plugins.txt o Morrowind.ini según el juego)."""
@@ -302,11 +308,13 @@ class Installer:
                 mod.installed_at = time.time()
             if self.config.auto_enable_plugins and mod.plugins:
                 self._enable_plugins(mod.plugins, log)
-            log(f"Activado: {mod.name} ({len(mod.deployed_files)} archivos desplegados)")
+            log(tr("Activado: {name} ({n} archivos desplegados)")
+                .format(name=mod.name, n=len(mod.deployed_files)))
         else:
             if mod.deployed_files and self.config.game_data_path:
                 removed = deploy.undeploy(mod.deployed_files, self.config.game_data_path)
-                log(f"Desactivado: {mod.name} ({removed} archivos retirados de Data)")
+                log(tr("Desactivado: {name} ({n} archivos retirados de Data)")
+                    .format(name=mod.name, n=removed))
             if mod.deployed_root_files:
                 groot = self._game_root()
                 if groot:
@@ -335,7 +343,8 @@ class Installer:
                 mod.install_dir, self.config.game_data_path, self.config.deploy_method,
                 exclude=self._exclude_for(mod, root_files),
             )
-            log(f"{mod.name}: {len(new_hidden)} archivo(s) oculto(s); re-desplegado.")
+            log(tr("{name}: {n} archivo(s) oculto(s); re-desplegado.")
+                .format(name=mod.name, n=len(new_hidden)))
         self.store.save()
         return True
 
@@ -387,7 +396,8 @@ class Installer:
                 except OSError:
                     pass
         if changed:
-            log(f"Orden de prioridad aplicado: {changed} archivo(s) en conflicto reasignados.")
+            log(tr("Orden de prioridad aplicado: {n} archivo(s) en conflicto reasignados.")
+                .format(n=changed))
         return changed
 
     @staticmethod
@@ -495,8 +505,8 @@ class Installer:
                 pass
         if removed:
             self.store.save()
-            log(f"Data aligerado para VFS: {len(removed)} archivo(s) retirados "
-                "(se sirven virtualizados al jugar).")
+            log(tr("Data aligerado para VFS: {n} archivo(s) retirados "
+                   "(se sirven virtualizados al jugar).").format(n=len(removed)))
         return removed
 
     def uninstall(self, mod_id: int, log=lambda m: None) -> bool:
@@ -505,12 +515,12 @@ class Installer:
             return False
         if mod.deployed_files and self.config.game_data_path:
             removed = deploy.undeploy(mod.deployed_files, self.config.game_data_path)
-            log(f"Eliminados {removed} archivos de Data.")
+            log(tr("Eliminados {n} archivos de Data.").format(n=removed))
         if mod.deployed_root_files:
             groot = self._game_root()
             if groot:
                 r2 = deploy.undeploy_root(mod.deployed_root_files, groot)
-                log(f"Eliminados {r2} archivos de la carpeta raíz del juego.")
+                log(tr("Eliminados {n} archivos de la carpeta raíz del juego.").format(n=r2))
         if mod.plugins:
             self._disable_plugins(mod.plugins, log)
         # Borrar carpeta gestionada
@@ -524,5 +534,5 @@ class Installer:
             pass
         self.store.mods.pop(mod_id, None)
         self.store.save()
-        log(f"Desinstalado: {mod.name}")
+        log(tr("Desinstalado: {name}").format(name=mod.name))
         return True
