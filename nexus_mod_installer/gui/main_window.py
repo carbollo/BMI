@@ -6,7 +6,7 @@ import threading
 import webbrowser
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer, QSettings, Signal
+from PySide6.QtCore import Qt, QTimer, QSettings, Signal, QPoint, QEvent
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QTabWidget, QLineEdit,
     QPushButton, QTableWidget, QTableWidgetItem, QProgressBar, QPlainTextEdit,
@@ -25,6 +25,7 @@ from .settings_dialog import SettingsDialog
 from .fomod_dialog import FomodDialog
 from .mods_panel import ModsPanel
 from .home_panel import HomePanel
+from .titlebar import TitleBar, CaptionButton
 from . import theme
 from . import icons
 from . import effects
@@ -353,6 +354,15 @@ class MainWindow(QMainWindow):
         self._views_refresh_scheduled = False
         self._last_mod_page = None   # (dominio, mod_id) de la última página de mod vista
         self._restore_geometry()
+
+        # --- Barra de título propia (integrada en el tema) ---
+        # La barra nativa gris se oculta vía WM_NCCALCSIZE (ver nativeEvent), conservando
+        # marco de sistema: sombra, Snap, Win+flechas y redimensionado siguen siendo nativos.
+        from PySide6.QtGui import QGuiApplication
+        self._custom_frame = QGuiApplication.platformName() == "windows"
+        self.titlebar = TitleBar(self)
+        self.setMenuWidget(self.titlebar)
+        self._frame_forced = False
 
         # --- Selector de juego ---
         self.game_combo = QComboBox()
@@ -1321,6 +1331,82 @@ class MainWindow(QMainWindow):
             self.restoreGeometry(geo)
         else:
             self.resize(1200, 840)
+
+    # ---- Marco de ventana propio (barra de título integrada) ----------
+    # La ventana CONSERVA su marco de sistema (WS_CAPTION/WS_THICKFRAME): solo se le dice a
+    # Windows que el área de cliente ocupa también la zona del marco (WM_NCCALCSIZE) y se le
+    # responde qué es cada punto (WM_NCHITTEST): bordes = redimensionar, barra = mover/doble
+    # clic/Snap. Así la sombra, animaciones y Win+flechas siguen siendo 100% nativos.
+
+    _WM_NCCALCSIZE, _WM_NCHITTEST = 0x0083, 0x0084
+    _HT = {"client": 1, "caption": 2, "left": 10, "right": 11, "top": 12, "topleft": 13,
+           "topright": 14, "bottom": 15, "bottomleft": 16, "bottomright": 17}
+    _RESIZE_BAND = 6   # px de borde para redimensionar
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        if self._custom_frame and not self._frame_forced:
+            self._frame_forced = True
+            try:
+                import ctypes
+                # SWP_FRAMECHANGED: fuerza un WM_NCCALCSIZE inicial para ocultar la barra nativa.
+                ctypes.windll.user32.SetWindowPos(
+                    int(self.winId()), 0, 0, 0, 0, 0,
+                    0x0002 | 0x0001 | 0x0004 | 0x0020)  # NOMOVE|NOSIZE|NOZORDER|FRAMECHANGED
+            except Exception:  # noqa: BLE001
+                self._custom_frame = False
+
+    def changeEvent(self, event) -> None:
+        super().changeEvent(event)
+        # Al maximizar/restaurar, refrescar el glifo del botón central de la barra.
+        if event.type() == QEvent.Type.WindowStateChange and hasattr(self, "titlebar"):
+            self.titlebar.btn_max.update()
+
+    def nativeEvent(self, eventType, message):
+        if not getattr(self, "_custom_frame", False) or eventType != b"windows_generic_MSG":
+            return super().nativeEvent(eventType, message)
+        try:
+            import ctypes
+            from ctypes import wintypes
+            msg = ctypes.cast(int(message), ctypes.POINTER(wintypes.MSG)).contents
+            if msg.message == self._WM_NCCALCSIZE and msg.wParam:
+                # Cliente = ventana entera (adiós barra nativa). Maximizada, Windows saca la
+                # ventana del monitor el grosor del marco: hay que compensarlo con un margen.
+                rect = ctypes.cast(msg.lParam, ctypes.POINTER(wintypes.RECT)).contents
+                if self.isMaximized():
+                    u = ctypes.windll.user32
+                    pad = u.GetSystemMetrics(32) + u.GetSystemMetrics(92)  # SIZEFRAME+PADDED
+                    rect.top += pad
+                    rect.left += pad
+                    rect.right -= pad
+                    rect.bottom -= pad
+                return True, 0
+            if msg.message == self._WM_NCHITTEST:
+                # Coordenadas de pantalla empaquetadas en lParam (shorts con signo).
+                x = ctypes.c_short(msg.lParam & 0xFFFF).value
+                y = ctypes.c_short((msg.lParam >> 16) & 0xFFFF).value
+                pos = self.mapFromGlobal(QPoint(x, y))
+                w, h, b = self.width(), self.height(), self._RESIZE_BAND
+                if not self.isMaximized():
+                    left, right = pos.x() <= b, pos.x() >= w - b
+                    top, bottom = pos.y() <= b, pos.y() >= h - b
+                    if top and left: return True, self._HT["topleft"]
+                    if top and right: return True, self._HT["topright"]
+                    if bottom and left: return True, self._HT["bottomleft"]
+                    if bottom and right: return True, self._HT["bottomright"]
+                    if left: return True, self._HT["left"]
+                    if right: return True, self._HT["right"]
+                    if top: return True, self._HT["top"]
+                    if bottom: return True, self._HT["bottom"]
+                # Zona de la barra de título (menos sus botones) = mover/doble clic/Snap.
+                tb = getattr(self, "titlebar", None)
+                if tb is not None and pos.y() < tb.height():
+                    if not tb.is_over_button(tb.mapFrom(self, pos)):
+                        return True, self._HT["caption"]
+                return True, self._HT["client"]
+        except Exception:  # noqa: BLE001
+            pass
+        return super().nativeEvent(eventType, message)
 
     def closeEvent(self, event) -> None:
         s = QSettings("NexusModInstaller", "NexusModInstaller")

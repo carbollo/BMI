@@ -19,14 +19,34 @@ SUCCESS = "#3fb950"
 DANGER = "#d9534f"
 INFO = "#4a90d9"
 
+SELECT_BG = "#3d2f1d"   # selección sobria (ámbar oscuro) que no «grita» como el naranja pleno
+
 STYLESHEET = f"""
 * {{
-    font-family: "Segoe UI", "Inter", system-ui, sans-serif;
+    font-family: "Segoe UI Variable Text", "Segoe UI", "Inter", system-ui, sans-serif;
     font-size: 13px;
     color: {TEXT};
 }}
 QWidget {{ background: {BG}; }}
 QMainWindow, QDialog {{ background: {BG}; }}
+
+/* ---- Barra de título propia ---- */
+QWidget#titlebar {{
+    background: {BG_DARK};
+    border-bottom: 1px solid {BORDER};
+}}
+QLabel[role="titlebar-text"] {{
+    color: {TEXT_DIM}; font-size: 12px; font-weight: 600; letter-spacing: 0.2px;
+}}
+
+/* ---- Menús contextuales ---- */
+QMenu {{
+    background: {PANEL}; border: 1px solid {BORDER}; border-radius: 8px; padding: 5px;
+}}
+QMenu::item {{ padding: 6px 26px 6px 12px; border-radius: 5px; background: transparent; }}
+QMenu::item:selected {{ background: {PANEL_HI}; }}
+QMenu::item:disabled {{ color: {TEXT_DIM}; }}
+QMenu::separator {{ height: 1px; background: {BORDER}; margin: 5px 8px; }}
 
 QLabel {{ background: transparent; }}
 QLabel[role="title"] {{ font-size: 17px; font-weight: bold; }}
@@ -80,13 +100,18 @@ QComboBox QAbstractItemView {{
 }}
 
 /* ---- Pestañas ---- */
-QTabWidget::pane {{ border: 1px solid {BORDER}; border-radius: 6px; top: -1px; }}
+QTabWidget::pane {{ border: 1px solid {BORDER}; border-radius: 8px; top: -1px; }}
 QTabBar::tab {{
     background: transparent; color: {TEXT_DIM};
-    padding: 7px 16px; border: 1px solid transparent; border-bottom: 2px solid transparent;
+    padding: 8px 18px; margin: 0 2px;
+    border: 1px solid transparent; border-bottom: 2px solid transparent;
+    border-top-left-radius: 7px; border-top-right-radius: 7px;
 }}
-QTabBar::tab:hover {{ color: {TEXT}; }}
-QTabBar::tab:selected {{ color: {TEXT}; border-bottom: 2px solid {ACCENT}; }}
+QTabBar::tab:hover {{ color: {TEXT}; background: {PANEL}; }}
+QTabBar::tab:selected {{
+    color: {TEXT}; background: {PANEL};
+    border-color: {BORDER}; border-bottom: 2px solid {ACCENT}; font-weight: 600;
+}}
 
 /* ---- Tablas ---- */
 QTableWidget, QTableView {{
@@ -94,16 +119,19 @@ QTableWidget, QTableView {{
     alternate-background-color: #25252b;
     gridline-color: {BORDER};
     border: 1px solid {BORDER};
-    border-radius: 6px;
-    selection-background-color: {ACCENT};
-    selection-color: #1a1207;
+    border-radius: 8px;
+    selection-background-color: {SELECT_BG};
+    selection-color: {TEXT};
 }}
 QHeaderView::section {{
     background: {BG_DARK}; color: {TEXT_DIM};
-    padding: 6px; border: none; border-right: 1px solid {BORDER}; border-bottom: 1px solid {BORDER};
-    font-weight: bold;
+    padding: 7px 10px; border: none;
+    border-right: 1px solid {BORDER}; border-bottom: 2px solid {BORDER};
+    font-weight: 600; font-size: 12px;
 }}
+QHeaderView::section:hover {{ color: {TEXT}; }}
 QTableWidget::item {{ padding: 6px 8px; }}
+QTableWidget::item:selected {{ background: {SELECT_BG}; color: {TEXT}; }}
 
 /* ---- Listas ---- */
 QListWidget {{
@@ -112,7 +140,9 @@ QListWidget {{
 }}
 QListWidget::item {{ padding: 7px 9px; border-radius: 6px; }}
 QListWidget::item:hover {{ background: {PANEL_HI}; }}
-QListWidget::item:selected {{ background: {ACCENT}; color: #1a1207; }}
+QListWidget::item:selected {{
+    background: {SELECT_BG}; color: {TEXT}; border-left: 2px solid {ACCENT};
+}}
 
 /* ---- Barra de progreso ---- */
 QProgressBar {{
@@ -159,16 +189,23 @@ QWidget[role="toolbar"] {{
 }}
 
 /* ---- Barras de desplazamiento ---- */
-QScrollBar:vertical {{ background: {BG}; width: 12px; margin: 0; }}
-QScrollBar::handle:vertical {{ background: {BORDER}; border-radius: 6px; min-height: 24px; }}
-QScrollBar::handle:vertical:hover {{ background: {ACCENT}; }}
-QScrollBar:horizontal {{ background: {BG}; height: 12px; margin: 0; }}
-QScrollBar::handle:horizontal {{ background: {BORDER}; border-radius: 6px; min-width: 24px; }}
+QScrollBar:vertical {{ background: transparent; width: 12px; margin: 2px; }}
+QScrollBar::handle:vertical {{ background: #45454d; border-radius: 4px; min-height: 28px; }}
+QScrollBar::handle:vertical:hover {{ background: #5a5a64; }}
+QScrollBar::handle:vertical:pressed {{ background: {ACCENT}; }}
+QScrollBar:horizontal {{ background: transparent; height: 12px; margin: 2px; }}
+QScrollBar::handle:horizontal {{ background: #45454d; border-radius: 4px; min-width: 28px; }}
+QScrollBar::handle:horizontal:hover {{ background: #5a5a64; }}
+QScrollBar::handle:horizontal:pressed {{ background: {ACCENT}; }}
 QScrollBar::add-line, QScrollBar::sub-line {{ height: 0; width: 0; }}
+QScrollBar::add-page, QScrollBar::sub-page {{ background: transparent; }}
 
 /* ---- Barra de estado ---- */
-QStatusBar {{ background: {BG_DARK}; color: {TEXT_DIM}; border-top: 1px solid {BORDER}; }}
-QToolTip {{ background: {PANEL}; color: {TEXT}; border: 1px solid {ACCENT}; padding: 4px; }}
+QStatusBar {{ background: {BG_DARK}; color: {TEXT_DIM}; font-size: 12px;
+              border-top: 1px solid {BORDER}; }}
+QStatusBar::item {{ border: none; }}
+QToolTip {{ background: #202024; color: {TEXT}; border: 1px solid {BORDER};
+            padding: 6px 9px; border-radius: 4px; }}
 """
 
 
