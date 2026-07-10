@@ -4,13 +4,14 @@ from __future__ import annotations
 import os
 import threading
 import webbrowser
+from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, QSettings, Signal
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QTabWidget, QLineEdit,
     QPushButton, QTableWidget, QTableWidgetItem, QProgressBar, QPlainTextEdit,
     QLabel, QMessageBox, QHeaderView, QAbstractItemView, QFileDialog, QComboBox,
-    QDialog, QMenu, QApplication, QProgressDialog,
+    QDialog, QMenu, QApplication, QProgressDialog, QFrame,
 )
 from PySide6.QtGui import QColor
 
@@ -31,6 +32,66 @@ from . import toast
 
 
 # ===========================================================================
+class _DropZone(QFrame):
+    """Rectángulo al pie de Descargas: suelta un .zip/.7z/.rar o la carpeta de un mod
+    para instalarlo sin pasar por Nexus."""
+
+    _EXTS = {".zip", ".7z", ".rar"}
+
+    def __init__(self, panel):
+        super().__init__(panel)
+        self._panel = panel
+        self.setAcceptDrops(True)
+        self.setMinimumHeight(64)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(12, 12, 12, 12)
+        self._lbl = QLabel(tr("⤓  Suelta aquí un archivo comprimido (.zip, .7z, .rar) o la "
+                              "carpeta de un mod para instalarlo"))
+        self._lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._lbl.setWordWrap(True)
+        self._lbl.setProperty("role", "dim")
+        lay.addWidget(self._lbl)
+        self._set_active(False)
+
+    def _set_active(self, on: bool) -> None:
+        color = theme.ACCENT if on else theme.BORDER
+        self.setStyleSheet(f"QFrame {{ border: 2px dashed {color}; border-radius: 10px; "
+                           f"background: transparent; }} QLabel {{ border: none; }}")
+
+    def _paths(self, e) -> list:
+        md = e.mimeData()
+        if not md.hasUrls():
+            return []
+        out = []
+        for u in md.urls():
+            p = u.toLocalFile()
+            if not p:
+                continue
+            pp = Path(p)
+            if pp.is_dir() or pp.suffix.lower() in self._EXTS:
+                out.append(pp)
+        return out
+
+    def dragEnterEvent(self, e) -> None:
+        if self._paths(e):
+            self._set_active(True)
+            e.acceptProposedAction()
+        else:
+            e.ignore()
+
+    def dragLeaveEvent(self, e) -> None:
+        self._set_active(False)
+
+    def dropEvent(self, e) -> None:
+        self._set_active(False)
+        paths = self._paths(e)
+        if not paths:
+            e.ignore()
+            return
+        e.acceptProposedAction()
+        self._panel.install_dropped(paths)
+
+
 class DownloadsPanel(QWidget):
     def __init__(self, manager: DownloadManager, window, parent=None):
         super().__init__(parent)
@@ -91,9 +152,43 @@ class DownloadsPanel(QWidget):
         self.table.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         v.addWidget(self.table)
 
+        # Zona para soltar archivos comprimidos o carpetas de mod (instalación local).
+        self.drop_zone = _DropZone(self)
+        v.addWidget(self.drop_zone)
+
         manager.task_added.connect(self.on_task_added)
         manager.task_updated.connect(self.on_task_updated)
         manager.tasks_changed.connect(self.rebuild)
+
+    def install_dropped(self, paths: list) -> None:
+        """Instala lo soltado en la zona: los archivos comprimidos entran por la vía local
+        normal (aparecen en esta cola) y las carpetas se copian a la «Carpeta de mods» y se
+        importan a la lista (estilo MO2, activadas y sin desplegar)."""
+        import shutil
+        folders = 0
+        for p in paths:
+            if p.is_dir():
+                dest = Path(self.manager.config.mods_dir) / p.name
+                if dest.exists():
+                    self.manager.log.emit(tr("Ya existe «{name}» en la carpeta de mods; no se copia.")
+                                          .format(name=p.name))
+                    continue
+                try:
+                    shutil.copytree(p, dest)
+                except Exception as exc:  # noqa: BLE001
+                    self.manager.log.emit(tr("No se pudo copiar la carpeta «{name}»: {e}")
+                                          .format(name=p.name, e=exc))
+                    continue
+                self.manager.log.emit(tr("📁 Carpeta «{name}» copiada a la carpeta de mods; importando…")
+                                      .format(name=p.name))
+                folders += 1
+            else:
+                self.manager.enqueue_local(str(p))
+        if folders:
+            try:
+                self._window._auto_import_mods()
+            except Exception:  # noqa: BLE001
+                pass
 
     def _label(self, task: DownloadTask) -> str:
         prefix = "🌐 " if task.is_translation else ("🔗 " if task.is_dependency else "")
