@@ -721,13 +721,29 @@ class DownloadManager(QObject):
                     or mod.mod_id < 0)
 
     def _prune_missing_imported(self) -> int:
-        """Quita de la lista los mods IMPORTADOS cuya carpeta ya no existe (el usuario los sacó
-        de la carpeta de mods). No toca los mods bajados por BMI. Si alguno estaba desplegado,
-        retira sus archivos de Data para no dejar huérfanos."""
+        """Quita de la lista los mods cuya carpeta ya no existe: los IMPORTADOS y también los
+        gestionados por BMI si borraste su carpeta a mano (sincronización total estilo MO2).
+        Si la «Carpeta de mods» entera no está accesible (p. ej. un disco desconectado) no
+        poda NADA, para no vaciar la lista por accidente. Si alguno estaba desplegado, retira
+        sus archivos de Data para no dejar huérfanos."""
         from pathlib import Path
         from . import deploy
+        try:
+            mods_base = Path(self.config.mods_dir).resolve()
+            if not mods_base.is_dir():
+                return 0
+        except OSError:
+            return 0
+
+        def _under_mods_dir(raw: str) -> bool:
+            try:
+                return Path(raw).resolve().is_relative_to(mods_base)
+            except (OSError, ValueError):
+                return False
+
         gone = [m for m in self.store.all()
-                if self._is_imported(m) and m.install_dir and not Path(m.install_dir).exists()]
+                if m.install_dir and not Path(m.install_dir).exists()
+                and (self._is_imported(m) or _under_mods_dir(m.install_dir))]
         for m in gone:
             if m.deployed_files and self.config.game_data_path:
                 try:
@@ -739,7 +755,7 @@ class DownloadManager(QObject):
                     self.installer._disable_plugins(m.plugins, self.log.emit)
                 except Exception:  # noqa: BLE001
                     pass
-            self.log.emit(tr("🗑 Mod importado quitado de la lista (ya no está en la carpeta): {name}")
+            self.log.emit(tr("🗑 Mod quitado de la lista (su carpeta ya no existe): {name}")
                           .format(name=m.name))
             self.store.mods.pop(m.mod_id, None)
         return len(gone)
