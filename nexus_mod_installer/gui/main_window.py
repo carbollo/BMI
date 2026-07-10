@@ -98,6 +98,7 @@ class DownloadsPanel(QWidget):
         self.manager = manager
         self._window = window
         self._row_of: dict[int, int] = {}   # id(task) -> fila
+        self._dropped: set[int] = set()     # id(task) de lo soltado en la zona (para avisar al acabar)
 
         v = QVBoxLayout(self)
         v.setContentsMargins(14, 12, 14, 12)
@@ -162,10 +163,10 @@ class DownloadsPanel(QWidget):
 
     def install_dropped(self, paths: list) -> None:
         """Instala lo soltado en la zona: los archivos comprimidos entran por la vía local
-        normal (aparecen en esta cola) y las carpetas se copian a la «Carpeta de mods» y se
-        importan a la lista (estilo MO2, activadas y sin desplegar)."""
+        normal (aparecen en esta cola y avisan al terminar) y las carpetas se copian a la
+        «Carpeta de mods», se importan a la lista y se confirma con un aviso."""
         import shutil
-        folders = 0
+        copied: list[str] = []
         for p in paths:
             if p.is_dir():
                 dest = Path(self.manager.config.mods_dir) / p.name
@@ -181,14 +182,40 @@ class DownloadsPanel(QWidget):
                     continue
                 self.manager.log.emit(tr("📁 Carpeta «{name}» copiada a la carpeta de mods; importando…")
                                       .format(name=p.name))
-                folders += 1
+                copied.append(p.name)
             else:
                 self.manager.enqueue_local(str(p))
-        if folders:
-            try:
-                self._window._auto_import_mods()
-            except Exception:  # noqa: BLE001
-                pass
+                # Recordar la tarea para avisar con un toast cuando quede instalada.
+                t = next((t for t in reversed(self.manager.tasks)
+                          if t.archive_path == str(p)), None)
+                if t is not None:
+                    self._dropped.add(id(t))
+        if not copied:
+            return
+        try:
+            added, _removed = self.manager.import_external_mods()
+        except Exception:  # noqa: BLE001
+            added = 0
+        try:
+            self._window.mods_panel.refresh()
+            self._window.home_panel.refresh(self._window.mods_panel._scan_cache)
+        except Exception:  # noqa: BLE001
+            pass
+        names = ", ".join(copied[:5]) + ("…" if len(copied) > 5 else "")
+        if added:
+            self.manager.log.emit(tr("✔ «{name}»: importado a la lista de Mods.").format(name=names))
+            self._toast(tr("✔ Mod instalado: {name}").format(name=names), "success")
+        else:
+            self.manager.log.emit(tr("«{name}» se copió, pero no se reconoció como mod "
+                                     "(no trae contenido de Data).").format(name=names))
+            self._toast(tr("«{name}» se copió, pero no se reconoció como mod "
+                           "(no trae contenido de Data).").format(name=names), "error")
+
+    def _toast(self, text: str, kind: str) -> None:
+        try:
+            self._window.toasts.show(text, kind)
+        except Exception:  # noqa: BLE001
+            pass
 
     def _label(self, task: DownloadTask) -> str:
         prefix = "🌐 " if task.is_translation else ("🔗 " if task.is_dependency else "")
@@ -220,6 +247,14 @@ class DownloadsPanel(QWidget):
         self.table.item(row, 1).setText(task.file_name)
         self.table.item(row, 1).setToolTip(task.file_name)
         self._update_row(row, task)
+        # Confirmación visible para lo soltado en la zona de instalación local.
+        if id(task) in self._dropped and task.status in (TaskStatus.DONE, TaskStatus.ERROR):
+            self._dropped.discard(id(task))
+            name = task.mod_name or task.file_name
+            if task.status == TaskStatus.DONE:
+                self._toast(tr("✔ Mod instalado: {name}").format(name=name), "success")
+            else:
+                self._toast(tr("No se pudo instalar «{name}».").format(name=name), "error")
 
     def _update_row(self, row: int, task: DownloadTask) -> None:
         status_text = task.status.value
