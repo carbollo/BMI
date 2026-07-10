@@ -18,5 +18,5 @@ no automatiza la web ni elude la limitación de las cuentas gratuitas (el único
 manual es el botón de descarga de cada mod, igual que en Vortex/MO2).
 """
 
-__version__ = "1.3.1"
+__version__ = "1.3.2"
 __app_name__ = "BMI - Bethesda Mod Installer"
