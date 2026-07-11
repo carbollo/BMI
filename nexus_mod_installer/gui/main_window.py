@@ -1373,7 +1373,7 @@ class MainWindow(QMainWindow):
             # self.isMaximized(): Qt lo actualiza DESPUÉS del WM_NCCALCSIZE de la transición,
             # y aplicar el margen de maximizado a la ventana ya restaurada dejaba a la vista
             # una franja del marco no-cliente (bordes del color de acento de Windows).
-            zoomed = bool(ctypes.windll.user32.IsZoomed(int(msg.hwnd)))
+            zoomed = bool(ctypes.windll.user32.IsZoomed(int(self.winId())))
             if msg.message == self._WM_NCCALCSIZE and msg.wParam:
                 # Cliente = ventana entera (adiós barra nativa). Maximizada, Windows saca la
                 # ventana del monitor el grosor del marco: hay que compensarlo con un margen.
