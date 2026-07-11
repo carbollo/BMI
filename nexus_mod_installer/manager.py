@@ -755,6 +755,18 @@ class DownloadManager(QObject):
                     self.installer._disable_plugins(m.plugins, self.log.emit)
                 except Exception:  # noqa: BLE001
                     pass
+            # Sus plugins copiados en Data quedarían huérfanos y el escáner los volvería a
+            # pintar como «mod externo» (fila fantasma). Retíralos de Data, salvo que otro
+            # mod de la lista aporte un plugin con el mismo nombre.
+            if m.plugins and self.config.game_data_path:
+                others = {p.lower() for o in self.store.all() if o.mod_id != m.mod_id
+                          for p in o.plugins}
+                orphan = [p for p in m.plugins if p.lower() not in others]
+                if orphan:
+                    try:
+                        deploy.undeploy(orphan, self.config.game_data_path)
+                    except Exception:  # noqa: BLE001
+                        pass
             self.log.emit(tr("🗑 Mod quitado de la lista (su carpeta ya no existe): {name}")
                           .format(name=m.name))
             self.store.mods.pop(m.mod_id, None)
@@ -785,7 +797,12 @@ class DownloadManager(QObject):
         for m in new:
             self.store.mods[m.mod_id] = m
         if new or removed:
-            self.store.save()
+            try:
+                self.store.save()
+            except Exception as e:  # noqa: BLE001
+                # Sin persistencia (JSON bloqueado por antivirus/nube): la lista en memoria
+                # ya está actualizada; avisa en el registro en vez de fallar en silencio.
+                self.log.emit(tr("No se pudo guardar la lista de mods: {e}").format(e=e))
         if new:
             names = ", ".join(m.name for m in new[:8]) + ("…" if len(new) > 8 else "")
             self.log.emit(tr("🔎 {n} mod(s) detectados en la carpeta e importados a la lista: {names}")

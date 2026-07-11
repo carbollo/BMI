@@ -132,13 +132,6 @@ class ModsPanel(QWidget):
         return w
 
     def _refresh_mods(self) -> None:
-        # Sincroniza con la «Carpeta de mods» (estilo MO2): quita de la lista los mods cuya
-        # carpeta ya no exista Y añade los que hayas metido a mano, para que «Actualizar»
-        # refleje la carpeta al momento sin tener que reiniciar.
-        try:
-            self.manager.import_external_mods()
-        except Exception:  # noqa: BLE001
-            pass
         # Mods GESTIONADOS por BMI (del almacén) + mods EXTERNOS detectados por el escáner
         # (plugins que no instaló BMI), para que se vean TODOS los mods instalados.
         managed = sorted(self.manager.store.all(), key=lambda m: m.name.lower())
@@ -782,6 +775,14 @@ class ModsPanel(QWidget):
 
     # ==================================================================
     def refresh(self) -> None:
+        # 1) Sincroniza con la «Carpeta de mods» (estilo MO2) ANTES de escanear Data: añade
+        #    los mods metidos a mano y quita los que ya no estén. Si se escanea antes, el
+        #    escáner ve el estado viejo y puede pintar filas fantasma un refresco más.
+        try:
+            self.manager.import_external_mods()
+        except Exception:  # noqa: BLE001
+            pass
+        # 2) Escanea Data y pinta.
         self._scan_cache = scanner.scan_installed(
             self.config.game_data_path, self.config.plugins_txt_path,
             {p for m in self.manager.store.all() for p in m.plugins},

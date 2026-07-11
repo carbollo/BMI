@@ -105,36 +105,48 @@ def scan_mods_folder(mods_dir, game_domain: str, known_ids, known_dirs) -> list[
     except OSError:
         return []
     for sub in subs:
-        name = sub.name
-        if name.startswith(".") or name.lower() in _SKIP_NAMES:
-            continue
-        if _is_bmi_managed(sub):
-            continue
-        if not deploy.looks_like_mod(sub):
-            continue
-        data_root = deploy.find_data_root(str(sub))
-        if str(Path(data_root).resolve()).lower() in known_dirs_set:
-            continue
-        meta = read_mo2_meta(sub)
-        mod_id = int(meta.get("modid", 0)) or _external_id(name)
-        if mod_id in used_ids:
-            continue
-        used_ids.add(mod_id)
         try:
-            mtime = sub.stat().st_mtime
-        except OSError:
-            mtime = 0.0
-        found.append(InstalledMod(
-            mod_id=mod_id,
-            name=name,
-            version=meta.get("version", ""),
-            game_domain=game_domain,
-            install_dir=str(data_root),
-            plugins=deploy.list_plugins(data_root),
-            enabled=True,
-            installed_at=mtime,
-            size_bytes=_dir_size(sub),
-            category="Importados",
-            imported=True,
-        ))
+            name = sub.name
+            if name.startswith(".") or name.lower() in _SKIP_NAMES:
+                continue
+            if _is_bmi_managed(sub):
+                # Carpeta con estructura de BMI (_extracted/_data): sáltala SOLO si de verdad
+                # sigue en la lista (algún install_dir del almacén vive dentro de ella). Si se
+                # quitó de la lista y el usuario la vuelve a meter en la carpeta, debe poder
+                # importarse como un mod más (antes se saltaba siempre y nunca reaparecía).
+                root_l = str(sub.resolve()).lower()
+                if any(k == root_l or k.startswith(root_l + "\\") or k.startswith(root_l + "/")
+                       for k in known_dirs_set):
+                    continue
+            if not deploy.looks_like_mod(sub):
+                continue
+            data_root = deploy.find_data_root(str(sub))
+            if str(Path(data_root).resolve()).lower() in known_dirs_set:
+                continue
+            meta = read_mo2_meta(sub)
+            mod_id = int(meta.get("modid", 0)) or _external_id(name)
+            if mod_id in used_ids:
+                continue
+            used_ids.add(mod_id)
+            try:
+                mtime = sub.stat().st_mtime
+            except OSError:
+                mtime = 0.0
+            found.append(InstalledMod(
+                mod_id=mod_id,
+                name=name,
+                version=meta.get("version", ""),
+                game_domain=game_domain,
+                install_dir=str(data_root),
+                plugins=deploy.list_plugins(data_root),
+                enabled=True,
+                installed_at=mtime,
+                size_bytes=_dir_size(sub),
+                category="Importados",
+                imported=True,
+            ))
+        except Exception:  # noqa: BLE001
+            # Una carpeta problemática (enlace roto, sin permisos, placeholder de la nube…)
+            # NO debe anular el escaneo entero: antes tumbaba todas las altas en silencio.
+            continue
     return found
