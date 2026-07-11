@@ -1369,11 +1369,13 @@ class MainWindow(QMainWindow):
             import ctypes
             from ctypes import wintypes
             msg = ctypes.cast(int(message), ctypes.POINTER(wintypes.MSG)).contents
-            # Estado REAL de maximizado según Windows en el instante del mensaje. OJO: no usar
-            # self.isMaximized(): Qt lo actualiza DESPUÉS del WM_NCCALCSIZE de la transición,
-            # y aplicar el margen de maximizado a la ventana ya restaurada dejaba a la vista
-            # una franja del marco no-cliente (bordes del color de acento de Windows).
-            zoomed = bool(ctypes.windll.user32.IsZoomed(int(self.winId())))
+            # Estado REAL de maximizado según Windows en el instante del mensaje. OJO doble:
+            # (1) no usar self.isMaximized(): Qt lo actualiza DESPUÉS del WM_NCCALCSIZE de la
+            # transición y dejaba a la vista una franja del marco (bordes de color de acento);
+            # (2) no usar self.winId(): los primeros mensajes llegan DURANTE la creación de la
+            # ventana y winId() ahí re-entra en la creación (la app moría al arrancar). El
+            # hwnd correcto viene en el propio mensaje: msg.hWnd (¡W mayúscula!).
+            zoomed = bool(ctypes.windll.user32.IsZoomed(int(msg.hWnd or 0)))
             if msg.message == self._WM_NCCALCSIZE and msg.wParam:
                 # Cliente = ventana entera (adiós barra nativa). Maximizada, Windows saca la
                 # ventana del monitor el grosor del marco: hay que compensarlo con un margen.
