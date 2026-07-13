@@ -93,13 +93,6 @@ class NexusApiClient:
         return resp.json()
 
     # ------------------------------------------------------------------
-    def validate(self) -> dict:
-        """Valida la API key. Devuelve datos del usuario (incluye is_premium)."""
-        data = self._get("/users/validate.json")
-        assert isinstance(data, dict)
-        self._user = data
-        return data
-
     @property
     def is_premium(self) -> bool:
         return bool(self._user and self._user.get("is_premium"))

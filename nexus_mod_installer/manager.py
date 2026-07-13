@@ -104,14 +104,35 @@ class DownloadManager(QObject):
         self.log.emit(tr("Sesión de Nexus cerrada."))
 
     def _validate_credentials(self) -> None:
+        # Con OAuth los datos del usuario se piden al endpoint OAuth «userinfo», NO a
+        # /users/validate.json (ese es el validador de API KEY y con un token Bearer devuelve
+        # 500). Así se muestra quién ha entrado y si es premium sin usar ninguna API key.
         try:
-            user = self.api.validate()
-            self._is_premium = bool(user.get("is_premium"))
+            token = self.oauth.valid_access_token()   # refresca si caducó
+            user = oauth.fetch_userinfo(token)
+            self._is_premium = self._premium_from_userinfo(user)
+            name = user.get("name") or user.get("preferred_username") or "?"
+            # Refleja la sesión OAuth en el cliente API para que la pantalla de Inicio muestre
+            # el nombre y el tipo de cuenta (antes venían de la respuesta de validate()).
+            self.api._user = {"name": name, "is_premium": self._is_premium}
             tier = tr("PREMIUM") if self._is_premium else tr("gratis")
-            self.log.emit(tr("Sesión API: {name} ({tier}).")
-                          .format(name=user.get('name', '?'), tier=tier))
+            self.log.emit(tr("Sesión de Nexus: {name} ({tier}).")
+                          .format(name=name, tier=tier))
         except Exception as e:
             self.log.emit(tr("No se pudo validar la sesión de Nexus: {e}").format(e=e))
+
+    @staticmethod
+    def _premium_from_userinfo(user: dict) -> bool:
+        """Deduce si la cuenta es premium a partir de la respuesta de OAuth userinfo, cuyo
+        esquema puede variar: prueba un booleano directo y, si no, busca en la lista de roles
+        de membresía. Ante la duda, asume gratis (camino seguro: no fuerza descargas directas)."""
+        if isinstance(user.get("is_premium"), bool):
+            return user["is_premium"]
+        roles = user.get("membership_roles") or user.get("roles") or []
+        if isinstance(roles, str):
+            roles = [roles]
+        roles = {str(r).lower() for r in roles} if isinstance(roles, (list, tuple, set)) else set()
+        return bool(roles & {"premium", "supporter", "lifetime", "lifetimepremium"})
 
     def reload_for_game(self) -> None:
         """Recarga el store y el instalador para el juego activo (tras cambiar de juego)."""
