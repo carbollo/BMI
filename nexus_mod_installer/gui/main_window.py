@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QTabWidget, QLineEdit,
     QPushButton, QTableWidget, QTableWidgetItem, QProgressBar, QPlainTextEdit,
     QLabel, QMessageBox, QHeaderView, QAbstractItemView, QFileDialog, QComboBox,
-    QDialog, QMenu, QApplication, QProgressDialog, QFrame,
+    QDialog, QMenu, QApplication, QFrame,
 )
 from PySide6.QtGui import QColor
 
@@ -341,10 +341,6 @@ class DownloadsPanel(QWidget):
 
 # ===========================================================================
 class MainWindow(QMainWindow):
-    # Autoactualización (se emiten desde hilos de fondo; Qt los entrega en el hilo GUI).
-    _update_found = Signal(object)      # {version, tag, url, notes, asset_url}
-    _dl_progress = Signal(int, int)     # (descargado, total)
-    _dl_done = Signal(str)              # ruta del nuevo .exe ("" = falló)
 
     def __init__(self, config: AppConfig, manager: DownloadManager):
         super().__init__()
@@ -484,14 +480,9 @@ class MainWindow(QMainWindow):
         # Al arrancar, detecta en segundo plano los mods ya presentes en la carpeta de mods
         # (estilo MO2). Diferido para no ralentizar el arranque de la ventana.
         QTimer.singleShot(1500, self._auto_import_mods)
-        # Autoactualización: comprobar GitHub al arrancar (silencioso si no hay red/novedad).
-        self._update_found.connect(self._on_update_found)
-        self._dl_progress.connect(self._on_dl_progress)
-        self._dl_done.connect(self._on_dl_done)
-        self._update_info = None
-        self._update_cancel = False
-        if getattr(self.config, "check_updates", True):
-            QTimer.singleShot(3500, lambda: self._check_updates_async(silent=True))
+        # NOTA: BMI NO se autoactualiza ni contacta con GitHub (por seguridad e integridad:
+        # el programa no descarga ni ejecuta binarios de fuentes externas). Para actualizar,
+        # el usuario abre la página de descargas en su propio navegador (botón en Ajustes).
 
     # ------------------------------------------------------------------
     def _build_log_tab(self) -> QWidget:
@@ -961,113 +952,12 @@ class MainWindow(QMainWindow):
                    "cada mod en su propia subcarpeta (estructura estilo MO2) y vuelve a probar.")
                 .format(dir=self.config.mods_dir))
 
-    # ---- Autoactualización desde GitHub -------------------------------
-    def _check_updates_async(self, silent: bool = True) -> None:
-        """Consulta GitHub en un hilo. ``silent``: solo avisa si hay novedad no descartada;
-        si es manual (silent=False), avisa también cuando ya estás al día."""
-        def work():
-            info = updater.check_latest()
-            if info:
-                if silent and info.get("tag") == getattr(self.config, "skip_update_version", ""):
-                    return
-                self._update_found.emit(info)
-            elif not silent:
-                self._update_found.emit({"none": True})
-        threading.Thread(target=work, daemon=True).start()
-
-    def _on_update_found(self, info: object) -> None:
-        if isinstance(info, dict) and info.get("none"):
-            cur = ".".join(str(n) for n in updater.current_version())
-            QMessageBox.information(self, tr("Buscar actualizaciones"),
-                                    tr("Ya tienes la última versión de BMI ({v}).").format(v=cur))
-            return
-        if not isinstance(info, dict):
-            return
-        box = QMessageBox(self)
-        box.setWindowTitle(tr("Actualización disponible"))
-        box.setText(tr("Hay una nueva versión de BMI: {v}.\n\n¿Descargarla e instalarla ahora? "
-                       "BMI se cerrará un momento y volverá a abrirse ya actualizado.")
-                    .format(v=info.get("version", "?")))
-        dl = box.addButton(tr("Descargar e instalar"), QMessageBox.ButtonRole.AcceptRole)
-        box.addButton(tr("Ahora no"), QMessageBox.ButtonRole.RejectRole)
-        skip = box.addButton(tr("No avisar de esta versión"), QMessageBox.ButtonRole.DestructiveRole)
-        box.exec()
-        if box.clickedButton() is dl:
-            self._download_update(info)
-        elif box.clickedButton() is skip:
-            self.config.skip_update_version = info.get("tag", "")
-            self.config.save()
-
-    def _download_update(self, info: dict) -> None:
-        if not updater.is_frozen():
-            webbrowser.open(info.get("url") or updater.RELEASES_PAGE)  # desde código: abrir GitHub
-            return
-        self._update_cancel = False
-        self._progress = QProgressDialog(tr("Descargando la nueva versión…"),
-                                         tr("Cancelar"), 0, 100, self)
-        self._progress.setWindowTitle(tr("Actualizando BMI"))
-        self._progress.setWindowModality(Qt.WindowModality.WindowModal)
-        self._progress.setMinimumDuration(0)
-        self._progress.canceled.connect(lambda: setattr(self, "_update_cancel", True))
-        self._progress.setValue(0)
-        self._progress.show()
-        new_exe = updater.current_exe() + ".new"
-        asset = info.get("asset_url", "")
-
-        def work():
-            try:
-                updater.download_asset(asset, new_exe,
-                                       lambda d, t: self._dl_progress.emit(d, t),
-                                       lambda: self._update_cancel)
-                self._dl_done.emit(new_exe)
-            except Exception:  # noqa: BLE001
-                self._dl_done.emit("")
-        threading.Thread(target=work, daemon=True).start()
-
-    def _on_dl_progress(self, done: int, total: int) -> None:
-        prog = getattr(self, "_progress", None)
-        if prog and total:
-            prog.setValue(int(done * 100 / total))
-
-    def _on_dl_done(self, path: str) -> None:
-        # OJO: cerrar un QProgressDialog dispara su señal 'canceled'. Capturamos el estado de
-        # cancelación ANTES de cerrarlo y desconectamos la señal, para que cerrar el diálogo NO
-        # marque una cancelación falsa (era la causa de que no se aplicara la actualización).
-        cancelled = self._update_cancel
-        prog = getattr(self, "_progress", None)
-        self._progress = None
-        if prog:
-            try:
-                prog.canceled.disconnect()
-            except Exception:  # noqa: BLE001
-                pass
-            prog.close()
-        if cancelled:
-            try:
-                if path and os.path.isfile(path):
-                    os.remove(path)   # limpiar el .new si el usuario canceló de verdad
-            except OSError:
-                pass
-            return
-        if not path:
-            QMessageBox.warning(self, tr("Actualizar"),
-                tr("No se pudo descargar la actualización. Inténtalo de nuevo o descárgala de GitHub."))
-            return
-        if updater.apply_update(path):
-            # SIN diálogo modal (bloqueaba el reemplazo hasta pulsar OK): un aviso breve no
-            # bloqueante y cerramos ya. El relevo reemplaza el .exe y reabre BMI solo.
-            try:
-                self.toasts.show(tr("Actualizando a la nueva versión…"), "success")
-            except Exception:  # noqa: BLE001
-                pass
-            self.close()
-            QApplication.processEvents()
-            # Salida INMEDIATA del proceso para que el .exe se libere y el relevo lo reemplace.
-            # (QApplication.quit() no siempre cierra del todo un onefile.)
-            os._exit(0)
-        else:
-            QMessageBox.warning(self, tr("Actualizar"),
-                tr("No se pudo aplicar la actualización. El nuevo archivo está en:\n{p}").format(p=path))
+    # ---- Actualizaciones (manuales, sin conexión de la app) -----------
+    def _open_releases_page(self) -> None:
+        """Abre la página de descargas de BMI en el NAVEGADOR del usuario. BMI no descarga
+        ni reemplaza binarios por su cuenta: por seguridad e integridad, cualquier descarga
+        la hace el usuario a mano desde su navegador."""
+        webbrowser.open(updater.RELEASES_PAGE)
 
     def _on_webview_url_changed(self, qurl) -> None:
         """Activa el botón en páginas de mod o de colección, y ajusta su texto."""
@@ -1193,7 +1083,7 @@ class MainWindow(QMainWindow):
         dlg = SettingsDialog(self.config, self)
         # Botón «Detectar mods de la carpeta» dentro de Ajustes (bajo la carpeta de mods).
         dlg.detect_mods_requested.connect(self._detect_mods)
-        dlg.check_updates_requested.connect(lambda: self._check_updates_async(silent=False))
+        dlg.check_updates_requested.connect(self._open_releases_page)
         if dlg.exec():
             dlg.apply_to_config()
             if getattr(self.config, "vfs_mode", False) and not vfs_before:

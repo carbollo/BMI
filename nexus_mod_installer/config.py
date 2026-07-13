@@ -48,8 +48,9 @@ def default_plugins_txt() -> str:
 
 @dataclass
 class AppConfig:
-    # Credenciales
-    api_key: str = ""
+    # Autenticación: SOLO OAuth de Nexus (el botón «Iniciar sesión» del navegador). No se
+    # usan ni se guardan API keys personales (lo prohíben los ToS de Nexus). El token OAuth
+    # se guarda cifrado con DPAPI de Windows, aparte de este archivo (ver oauth.TokenStore).
     # Juego objetivo (dominio de Nexus)
     game_domain: str = "skyrimspecialedition"
     # Rutas
@@ -86,9 +87,6 @@ class AppConfig:
     # Modo VFS (experimental, estilo MO2): virtualiza los mods al jugar; Data queda limpia.
     vfs_mode: bool = False
     vfs_dir: str = ""        # carpeta con usvfs_x64.dll (vacío = autodetectar)
-    # Autoactualización desde GitHub
-    check_updates: bool = True     # comprobar si hay versión nueva al arrancar
-    skip_update_version: str = ""  # tag de versión que el usuario pidió NO volver a avisar
 
     # ------------------------------------------------------------------
     @staticmethod
@@ -103,6 +101,14 @@ class AppConfig:
                 data = json.loads(p.read_text(encoding="utf-8"))
                 cfg = cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
                 cfg.ensure_dirs()
+                # Migración de seguridad: versiones antiguas guardaban la API key personal en
+                # texto plano en este archivo. Ya no se usa (solo OAuth); si el JSON en disco
+                # aún la trae, reescribimos el archivo SIN ella para borrarla del disco.
+                if any(k in data for k in ("api_key", "check_updates", "skip_update_version")):
+                    try:
+                        cfg.save()
+                    except Exception:
+                        pass
                 return cfg
             except Exception:
                 pass

@@ -43,6 +43,7 @@ with warnings.catch_warnings():
 
 from .config import app_data_dir
 from . import __app_name__, __version__
+from . import secure_store
 
 # --- Endpoints (autoritativos, del openid-configuration de Nexus) ---
 ISSUER = "https://users.nexusmods.com"
@@ -255,27 +256,72 @@ def fetch_userinfo(access_token: str) -> dict:
 
 # ---------------------------------------------------------------------------
 class TokenStore:
-    """Persiste el token OAuth en ``%APPDATA%/BMI/oauth_token.json`` (solo local)."""
+    """Persiste el token OAuth CIFRADO en ``%APPDATA%/BMI/oauth_token.dat`` con DPAPI de
+    Windows (ligado a la cuenta del usuario; ver ``secure_store``). Nunca se escribe en claro.
+
+    Migra automáticamente el antiguo ``oauth_token.json`` en texto plano: lo lee, lo reescribe
+    cifrado y BORRA el archivo en claro. Si DPAPI no está disponible (dev fuera de Windows),
+    el token no se persiste (queda solo en memoria) en lugar de guardarse sin cifrar."""
 
     def __init__(self, path: Path | None = None):
-        self.path = path or (app_data_dir() / "oauth_token.json")
+        base = app_data_dir()
+        self.path = path or (base / "oauth_token.dat")     # cifrado (DPAPI)
+        self._legacy = base / "oauth_token.json"           # plano antiguo (a migrar/borrar)
 
-    def load(self) -> OAuthToken | None:
+    def _decode(self, raw: bytes) -> "OAuthToken | None":
         try:
-            data = json.loads(self.path.read_text(encoding="utf-8"))
+            data = json.loads(raw.decode("utf-8"))
             return OAuthToken(**{k: data[k] for k in data
                                  if k in OAuthToken.__dataclass_fields__})
         except Exception:
             return None
 
-    def save(self, token: OAuthToken) -> None:
-        self.path.write_text(json.dumps(asdict(token), indent=2), encoding="utf-8")
-
-    def clear(self) -> None:
+    def load(self) -> OAuthToken | None:
+        # 1) Token cifrado (formato actual).
         try:
-            self.path.unlink()
+            if self.path.is_file():
+                return self._decode(secure_store.unprotect(self.path.read_bytes()))
+        except Exception:
+            pass
+        # 2) Migración: token antiguo en texto plano -> re-cifrar y borrar el plano.
+        try:
+            if self._legacy.is_file():
+                tok = self._decode(self._legacy.read_bytes())
+                if tok is not None:
+                    try:
+                        self.save(tok)          # reescribe cifrado
+                    except Exception:
+                        pass
+                try:
+                    self._legacy.unlink()       # elimina el archivo en claro del disco
+                except OSError:
+                    pass
+                return tok
+        except Exception:
+            pass
+        return None
+
+    def save(self, token: OAuthToken) -> None:
+        raw = json.dumps(asdict(token)).encode("utf-8")
+        try:
+            blob = secure_store.protect(raw)
+        except secure_store.SecureStoreUnavailable:
+            # Sin DPAPI (dev no-Windows): NO escribir en claro; el token vive solo en memoria.
+            return
+        self.path.write_bytes(blob)
+        # Por si acaso quedara un token plano antiguo, elimínalo.
+        try:
+            if self._legacy.is_file():
+                self._legacy.unlink()
         except OSError:
             pass
+
+    def clear(self) -> None:
+        for p in (self.path, self._legacy):
+            try:
+                p.unlink()
+            except OSError:
+                pass
 
 
 class OAuthSession:

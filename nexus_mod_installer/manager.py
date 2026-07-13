@@ -51,10 +51,10 @@ class DownloadManager(QObject):
     def __init__(self, config: AppConfig):
         super().__init__()
         self.config = config
-        self.api = NexusApiClient(config.api_key)
-        self.graphql = NexusGraphQLClient(config.api_key)
-        # Sesión OAuth de Nexus (método oficial). Si hay sesión iniciada, los clientes usan
-        # su token Bearer; si no, caen a la API key personal (respaldo).
+        self.api = NexusApiClient()
+        self.graphql = NexusGraphQLClient()
+        # Sesión OAuth de Nexus: ÚNICO método de autenticación (los ToS de Nexus prohíben las
+        # API keys personales). Los clientes usan el token Bearer de esta sesión.
         self.oauth = oauth.OAuthSession()
         self.api.set_bearer_provider(self.oauth.access_token_or_none)
         self.graphql.set_bearer_provider(self.oauth.access_token_or_none)
@@ -73,10 +73,8 @@ class DownloadManager(QObject):
 
     # ------------------------------------------------------------------
     def update_credentials(self) -> None:
-        """Valida las credenciales en segundo plano (OAuth si hay sesión; si no, API key)."""
-        self.api.set_api_key(self.config.api_key)
-        self.graphql.set_api_key(self.config.api_key)
-        if not self.oauth.is_logged_in and not self.config.api_key:
+        """Valida la sesión OAuth en segundo plano (no bloquea la interfaz)."""
+        if not self.oauth.is_logged_in:
             return
         threading.Thread(target=self._validate_credentials, daemon=True).start()
 
@@ -113,7 +111,7 @@ class DownloadManager(QObject):
             self.log.emit(tr("Sesión API: {name} ({tier}).")
                           .format(name=user.get('name', '?'), tier=tier))
         except Exception as e:
-            self.log.emit(tr("No se pudo validar la API key: {e}").format(e=e))
+            self.log.emit(tr("No se pudo validar la sesión de Nexus: {e}").format(e=e))
 
     def reload_for_game(self) -> None:
         """Recarga el store y el instalador para el juego activo (tras cambiar de juego)."""
