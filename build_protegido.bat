@@ -17,7 +17,7 @@ if not exist "%PY%" set "PY=python"
   --windows-icon-from-ico=icon.ico ^
   --company-name=carbollo ^
   --product-name="BMI - Bethesda Mod Installer" ^
-  --file-version=1.3.4.0 --product-version=1.3.4 ^
+  --file-version=1.3.5.0 --product-version=1.3.5 ^
   --file-description="BMI - Bethesda Mod Installer - gestor de mods de Nexus" ^
   --copyright="(c) 2026 carbollo - BMI" ^
   --include-package=nexus_mod_installer ^
