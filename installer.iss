@@ -7,7 +7,7 @@
 ; ===================================================================
 #define MyAppName "BMI - Bethesda Mod Installer"
 #define MyAppShort "BMI"
-#define MyAppVersion "1.3.6"
+#define MyAppVersion "1.3.7"
 #define MyAppPublisher "carbollo"
 #define MyAppURL "https://github.com/carbollo/BMI"
 #define MyAppExe "BMI.exe"
