@@ -79,11 +79,6 @@ class NexusWebView(QWebEngineView):
 
         self.setUrl(QUrl(home_url(self._game_domain)))
 
-    def profile(self) -> QWebEngineProfile:
-        """Perfil del navegador (con la sesión/cookies del usuario). Lo comparte el escáner
-        de traducciones para poder leer las páginas de mod pasando Cloudflare."""
-        return self._profile
-
     def set_downloads_dir(self, path: str) -> None:
         self._downloads_dir = path
 
@@ -131,18 +126,3 @@ class NexusWebView(QWebEngineView):
 
     def open_mod_page(self, game_domain: str, mod_id: int) -> None:
         self.setUrl(QUrl(f"https://www.nexusmods.com/{game_domain}/mods/{mod_id}?tab=files"))
-
-    # JS que lee el atributo download-links (sección Requirements) de la página cargada.
-    # Nexus lo pone en <main-file-requirements>; trae el JSON de dependencias del archivo.
-    _REQUIREMENTS_JS = (
-        "(function(){var e=document.querySelector('main-file-requirements');"
-        "return e?(e.getAttribute('download-links')||''):'';})()"
-    )
-
-    def read_requirements(self, callback) -> None:
-        """Lee las dependencias declaradas en la página del mod (Requirements) y llama a
-        ``callback(json_str)`` con el JSON (cadena) del atributo download-links, o ''."""
-        try:
-            self.page().runJavaScript(self._REQUIREMENTS_JS, callback)
-        except Exception:
-            callback("")

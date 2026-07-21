@@ -30,43 +30,6 @@ GRAPHQL_URL = "https://api.nexusmods.com/v2/graphql"
 GAME_IDS = {g.domain: g.game_id for g in games.GAMES.values()}
 
 
-def parse_download_links(json_str: str) -> list[tuple[str, int, int, str]]:
-    """Extrae las dependencias del atributo ``download-links`` que Nexus pone en el elemento
-    ``<main-file-requirements>`` de la página de un mod (la sección Requirements / "additional
-    files required"). Es la fuente AUTORITATIVA de qué archivos hacen falta para que el mod
-    funcione (a veces más completa que el GraphQL ``mod_requirements``).
-
-    Devuelve ``[(game_domain, mod_id, file_id, nombre), ...]`` sin duplicados. El ``file_id``
-    se decodifica del ``uid`` (uid = game_id * 2**32 + file_id); si no se puede, queda 0 y el
-    flujo normal resolverá el archivo principal por el mod_id.
-    """
-    import json as _json
-    try:
-        data = _json.loads(json_str or "")
-    except Exception:
-        return []
-    out: list[tuple[str, int, int, str]] = []
-    seen: set[int] = set()
-    for dep in (data.get("dependencies") or []):
-        for f in (dep.get("files") or []):
-            mod = f.get("mod") or {}
-            m = re.search(r"nexusmods\.com/([^/?#]+)/mods/(\d+)", mod.get("url", "") or "")
-            if not m:
-                continue
-            domain, mod_id = m.group(1), int(m.group(2))
-            if mod_id in seen:
-                continue
-            seen.add(mod_id)
-            gid = GAME_IDS.get(domain, 0)
-            try:
-                uid = int(f.get("uid") or 0)
-            except (TypeError, ValueError):
-                uid = 0
-            file_id = (uid - gid * (2 ** 32)) if (gid and uid > gid * (2 ** 32)) else 0
-            out.append((domain, mod_id, file_id, f.get("name", "") or mod.get("name", "")))
-    return out
-
-
 @dataclass
 class TranslationCandidate:
     mod_id: int
@@ -162,9 +125,11 @@ class NexusGraphQLClient:
 
         Si ``revision`` es None, se pide la última revisión publicada.
         """
+        # NO forzamos ``viewAdultContent``: se respeta la preferencia de contenido de la cuenta
+        # del usuario en Nexus (así el contenido adulto no se muestra a quien no lo ha habilitado).
         query = """
         query CollectionRevision($slug: String!, $revision: Int) {
-          collectionRevision(slug: $slug, revision: $revision, viewAdultContent: true) {
+          collectionRevision(slug: $slug, revision: $revision) {
             revisionNumber
             collection { name }
             modFiles {

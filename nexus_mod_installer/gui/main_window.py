@@ -442,10 +442,7 @@ class MainWindow(QMainWindow):
         self.home_panel.go_explore.connect(lambda: self.tabs.setCurrentWidget(self.explore_tab))
         self.downloads_panel = DownloadsPanel(manager, self)
         self.mods_panel = ModsPanel(manager)
-        self.mods_panel.translate_all_requested.connect(self._translate_all_web)
-        # Al añadir/instalar un mod, leer su página oficial: traducciones al idioma de la
-        # app y requisitos de la sección Requirements (mismo escáner web para todo).
-        self.manager.page_lookup.connect(self._on_page_lookup)
+        self.mods_panel.translate_all_requested.connect(self._translate_all)
         self.log_tab = self._build_log_tab()
 
         self.tabs = QTabWidget()
@@ -738,13 +735,6 @@ class MainWindow(QMainWindow):
         self._queue_mod(game_domain, mod_id)
         self.tabs.setCurrentWidget(self.downloads_panel)
 
-    def _enqueue_mod_with_web_deps(self, game_domain: str, mod_id: int, req_json: str) -> None:
-        """Encola el mod usando las dependencias leídas de la página (Requirements) — la
-        fuente autoritativa — además de las del GraphQL (complemento)."""
-        from ..nexus_graphql import parse_download_links
-        web_deps = parse_download_links(req_json or "")
-        self.manager.enqueue_mod(game_domain, mod_id, extra_deps=web_deps)
-
     @staticmethod
     def _extract_mod_id(url: str) -> int | None:
         import re
@@ -843,76 +833,11 @@ class MainWindow(QMainWindow):
             .format(who=(" como " + name) if name else ""))
         self._status(tr("Sesión de Nexus iniciada."))
 
-    # --- Traducir mis mods leyendo la lista OFICIAL de cada página (vía navegador) ---
-    _TR_LANG_WORDS = {
-        "es": ["spanish", "español", "espanol", "castellano"],
-        "fr": ["french", "français", "francais"],
-        "de": ["german", "deutsch"],
-        "it": ["italian", "italiano"],
-    }
-
-    def _get_tr_scanner(self):
-        """Escáner de páginas de mod (perezoso, único): lee de la página OFICIAL de cada mod
-        su lista de traducciones y sus requisitos («Nexus requirements»). Lo comparten el
-        botón masivo de traducir y las descargas de mods sueltos."""
-        sc = getattr(self, "_tr_scanner", None)
-        if sc is None:
-            from .translation_scan import TranslationScanner
-            words = self._TR_LANG_WORDS.get(self.config.language or "es", [])
-            sc = TranslationScanner(self.webview.profile(), words, self)
-            sc.translation_found.connect(self._on_translation_found)
-            sc.requirement_found.connect(self._on_requirement_found)
-            sc.scanning.connect(
-                lambda dom, mid: self._status(tr("Leyendo la página del mod {mid}…")
-                                              .format(mid=mid)))
-            self._tr_scanner = sc
-        return sc
-
-    def _wrong_domain(self, dom: str) -> bool:
-        """True si ``dom`` pertenece a OTRO juego que el activo. Los mods de un juego se
-        instalan en la Data de ESE juego; encolar un requisito/traducción de otro dominio lo
-        metería en la carpeta equivocada. SSE y AE comparten dominio, así que compara contra
-        game().domain (no la clave interna)."""
-        active = self.config.game().domain
-        return bool(dom) and dom != active
-
-    def _on_translation_found(self, dom: str, tmid: int, name: str) -> None:
-        if self._wrong_domain(dom):
-            return
-        if not self.manager.store.is_installed(tmid):
-            self.manager.enqueue_translation_mod(dom or self.config.game().domain, tmid, name)
-
-    def _on_requirement_found(self, dom: str, rmid: int, name: str) -> None:
-        """Requisito leído de la sección «Nexus requirements» de la página de un mod."""
-        if self._wrong_domain(dom):
-            self._status(tr("Requisito de otro juego ({dom}) omitido.").format(dom=dom))
-            return
-        self.manager.enqueue_requirement_mod(dom or self.config.game().domain, rmid, name)
-
-    def _translate_all_web(self) -> None:
-        if (self.config.language or "es") not in self._TR_LANG_WORDS:
-            return
-        mods = [(getattr(m, "game_domain", "") or self.config.game_domain, m.mod_id, m.name)
-                for m in self.manager.store.all() if getattr(m, "mod_id", 0) and m.mod_id > 0]
-        if not mods:
-            return
-        if not self.manager.is_logged_in and QMessageBox.question(
-                self, tr("Traducir mis mods"),
-                tr("No has iniciado sesión en Nexus; algunas páginas podrían no cargar. "
-                   "¿Continuar igualmente?")) != QMessageBox.StandardButton.Yes:
-            return
-        self._get_tr_scanner().add(mods)
-        self._status(tr("Leyendo la lista oficial de traducciones de tus mods…"))
-
-    def _on_page_lookup(self, dom: str, mid: int, name: str, want_tr: bool) -> None:
-        """El gestor pide leer la página de un mod: traducciones oficiales (si want_tr) y
-        requisitos de «Nexus requirements» (si el resolutor de dependencias está activo)."""
-        want_tr = bool(want_tr and (self.config.language or "es") in self._TR_LANG_WORDS)
-        want_req = bool(getattr(self.config, "resolve_dependencies", True))
-        if not (want_tr or want_req):
-            return
-        self._get_tr_scanner().add([(dom or self.config.game_domain, mid, name)],
-                                   want_translations=want_tr, want_requirements=want_req)
+    def _translate_all(self) -> None:
+        """Busca y encola la traducción al idioma de la app de todos los mods instalados,
+        usando la API OFICIAL de Nexus (nunca scraping de páginas web)."""
+        self.manager.translate_installed_mods()
+        self._status(tr("Buscando traducciones en segundo plano; míralo en Descargas."))
 
     def _auto_import_mods(self) -> None:
         """Sincroniza en silencio la lista con la «Carpeta de mods» (estilo MO2): añade los
@@ -997,9 +922,8 @@ class MainWindow(QMainWindow):
                     .format(domain=domain, active=active)
                 )
                 return
-            # Lee las dependencias de la página (Requirements) y encola el mod con ellas.
-            self.webview.read_requirements(
-                lambda s, d=domain, m=mod_id: self._enqueue_mod_with_web_deps(d, m, s))
+            # Encola el mod; sus dependencias se resuelven con la API oficial de Nexus.
+            self.manager.enqueue_mod(domain, mod_id)
             self.tabs.setCurrentWidget(self.downloads_panel)
             return
         if "/collections/" in url.lower():
@@ -1170,12 +1094,6 @@ class MainWindow(QMainWindow):
             return
         # Idle: purga cualquier resto y cambia.
         self.manager.purge_pending()
-        # Parar el escáner de páginas: has_pending_work() no lo mira, así que podría seguir
-        # leyendo páginas del juego ANTERIOR y encolar sus requisitos/traducciones en el
-        # juego nuevo (Data equivocada). Descartamos su cola en curso.
-        sc = getattr(self, "_tr_scanner", None)
-        if sc is not None:
-            sc.reset()
         self.downloads_panel.rebuild()
         self.config.switch_game(key)
         self.manager.reload_for_game()

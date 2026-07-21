@@ -195,8 +195,8 @@ class ModsPanel(QWidget):
             .format(p=plat_txt, lines=lines, more=more))
 
     def _translate_all(self) -> None:
-        """Pide traducir todos los mods leyendo la lista OFICIAL de traducciones de la página
-        de cada mod (vía el navegador embebido). Lo ejecuta la ventana principal."""
+        """Pide traducir todos los mods buscando las traducciones con la API oficial de Nexus.
+        Lo ejecuta la ventana principal."""
         mods = [m for m in self.manager.store.all() if getattr(m, "mod_id", 0) and m.mod_id > 0]
         if not mods:
             QMessageBox.information(self, tr("Traducir mis mods"),
@@ -209,10 +209,8 @@ class ModsPanel(QWidget):
             return
         ans = QMessageBox.question(
             self, tr("Traducir mis mods"),
-            tr("BMI abrirá la página de cada uno de tus {n} mods en su navegador para leer su "
-               "lista OFICIAL de traducciones («Translations available on the Nexus») y "
-               "encolar la de tu idioma si existe.\n\nTarda un poco (una página por mod) e "
-               "conviene tener la sesión de Nexus iniciada. ¿Continuar?").format(n=len(mods)))
+            tr("BMI buscará en Nexus la traducción a tu idioma de tus {n} mods instalados y "
+               "encolará las que encuentre.\n\n¿Continuar?").format(n=len(mods)))
         if ans != QMessageBox.StandardButton.Yes:
             return
         self.translate_all_requested.emit()
