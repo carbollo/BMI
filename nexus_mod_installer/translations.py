@@ -165,18 +165,19 @@ def find_translations(
     mod_id: int,
     mod_name: str,
     lang: str,
-    min_score: float = 0.7,
+    min_score: float = 0.6,
     log=lambda m: None,
 ) -> list[TranslationRef]:
-    """Busca traducciones del mod al idioma ``lang`` de forma ESTRICTA.
+    """Busca traducciones del mod al idioma ``lang`` con la API OFICIAL de Nexus (sin scraping).
 
-    El API de Nexus no expone la lista oficial de traducciones, así que se busca por nombre
-    entre los mods marcados en ese idioma; pero para NO bajar una traducción equivocada, se
-    exige un parecido de nombre ALTO (F1 de palabras significativas ≥ ``min_score``): la
-    candidata debe contener casi todo el nombre original Y no tener muchas palabras de más.
-    Así «X - Spanish» pasa, pero ni «Super Skyrim Bros» (comparte solo «super» con «Skyrim
-    Super Weapons») ni «Crafting Categories for SkyUI» (traducción de OTRO mod) cuelan.
-    Prefiere no encontrar nada antes que acertar mal.
+    El API no expone la lista oficial de traducciones de un mod, así que se buscan mods por
+    nombre y se filtran los que sean una traducción a ese idioma, por DOS vías (unión):
+      (a) mods ETIQUETADOS con ese idioma en Nexus (``languageName``);
+      (b) mods cuyo NOMBRE delata el idioma («Spanish», «Español», «Traducción»…), porque
+          muchas traducciones no llevan la etiqueta pero sí lo indican en el título.
+    Para NO bajar una traducción equivocada se exige además un parecido de nombre alto (F1 de
+    palabras significativas ≥ ``min_score``): así «SkyUI - Spanish» pasa como traducción de
+    «SkyUI», pero «Crafting Categories for SkyUI - Spanish» (traducción de OTRO mod) no.
     """
     language_name = NEXUS_LANGUAGE_NAME.get(lang)
     if not language_name or not mod_name:
@@ -184,8 +185,7 @@ def find_translations(
     orig = _tokens(mod_name)
     if not orig:
         return []
-    # Solo el nombre completo y, como mucho, la cabecera antes de un subtítulo. NADA de
-    # acortar agresivamente (eso era lo que provocaba falsos positivos).
+    # El nombre completo y, como mucho, la cabecera antes de un subtítulo.
     queries = [mod_name.strip()]
     head = re.split(r"\s*[-–—:|(\[]", mod_name, 1)[0].strip()
     if head and head.lower() != mod_name.strip().lower() and len(_tokens(head)) >= 2:
@@ -193,17 +193,24 @@ def find_translations(
 
     found: dict[int, TranslationRef] = {}
     for query in queries:
+        cands: list = []
+        # (a) mods marcados con el idioma en Nexus.
         try:
-            cands = graphql_client.search_mods(query, game_domain, language=language_name)
-        except Exception as e:
+            cands += graphql_client.search_mods(query, game_domain, language=language_name)
+        except Exception as e:  # noqa: BLE001
             log(f"Búsqueda de traducción no disponible: {e}")
-            cands = []
+        # (b) mods cuyo nombre delata el idioma (aunque no lleven la etiqueta).
+        try:
+            cands += [c for c in graphql_client.search_mods(query, game_domain)
+                      if looks_language(getattr(c, "name", ""), lang)]
+        except Exception as e:  # noqa: BLE001
+            log(f"Búsqueda de traducción no disponible: {e}")
         for c in cands:
             if c.mod_id == mod_id or c.mod_id in found:
                 continue
             if not _tokens(c.name):
                 continue
-            # F1 de palabras significativas: alto = la candidata contiene casi todo el nombre
+            # F1 de palabras significativas: la candidata debe contener casi todo el nombre
             # original y no muchas palabras de más (evita falsos positivos en ambos sentidos).
             score = name_overlap(mod_name, c.name)
             if score >= min_score:
