@@ -242,7 +242,7 @@ class HomePanel(QWidget):
         cfg = self.config
         ok, bad = theme.SUCCESS, theme.DANGER
         g = cfg.game()
-        self.header.setText(f"BMI — {g.name}")
+        self.header.setText(f"BMI — {g.display}")
 
         # Cuenta
         api = self.manager.api

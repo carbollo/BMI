@@ -107,6 +107,16 @@ class SettingsDialog(QDialog):
                               "descarga ni instala nada por su cuenta."))
         upd_btn.clicked.connect(self.check_updates_requested)
         form.addRow("", upd_btn)
+        # Copia de seguridad de la configuración (config, perfiles, listas de mods, categorías).
+        bk_btn = QPushButton(tr("💾 Copia de seguridad…"))
+        bk_btn.setToolTip(tr("Guarda en un .zip tu configuración, perfiles y listas de mods "
+                             "(no incluye la sesión de Nexus)"))
+        bk_btn.clicked.connect(self._do_backup)
+        form.addRow("", bk_btn)
+        rs_btn = QPushButton(tr("📂 Restaurar copia…"))
+        rs_btn.setToolTip(tr("Restaura la configuración desde un .zip de copia de seguridad"))
+        rs_btn.clicked.connect(self._do_restore)
+        form.addRow("", rs_btn)
         # Versión actual del programa (abajo de la pestaña Cuenta).
         from .. import __version__
         ver = QLabel(f"BMI  ·  v{__version__}")
@@ -114,6 +124,41 @@ class SettingsDialog(QDialog):
         ver.setAlignment(Qt.AlignmentFlag.AlignRight)
         form.addRow("", ver)
         return w
+
+    def _do_backup(self) -> None:
+        from .. import backup
+        path, _ = QFileDialog.getSaveFileName(
+            self, tr("Copia de seguridad de BMI"), "BMI-backup.zip", tr("Copia BMI (*.zip)"))
+        if not path:
+            return
+        try:
+            n = backup.create_backup(path)
+        except Exception as e:  # noqa: BLE001
+            QMessageBox.warning(self, tr("Copia de seguridad"),
+                                tr("No se pudo crear la copia: {e}").format(e=e))
+            return
+        QMessageBox.information(self, tr("Copia de seguridad"),
+                               tr("Copia creada: {n} archivo(s).").format(n=n))
+
+    def _do_restore(self) -> None:
+        from .. import backup
+        path, _ = QFileDialog.getOpenFileName(
+            self, tr("Restaurar copia de BMI"), "", tr("Copia BMI (*.zip)"))
+        if not path:
+            return
+        if QMessageBox.question(self, tr("Restaurar copia"), tr(
+                "Esto sobrescribirá tu configuración, perfiles y listas de mods actuales con "
+                "los de la copia. ¿Continuar? (reinicia BMI después)")) \
+                != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            n = backup.restore_backup(path)
+        except Exception as e:  # noqa: BLE001
+            QMessageBox.warning(self, tr("Restaurar copia"),
+                                tr("No se pudo restaurar: {e}").format(e=e))
+            return
+        QMessageBox.information(self, tr("Restaurar copia"), tr(
+            "Restaurados {n} archivo(s). Reinicia BMI para aplicar los cambios.").format(n=n))
 
     def _tab_language(self) -> QWidget:
         w = QWidget(); form = QFormLayout(w)

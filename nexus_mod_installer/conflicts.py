@@ -31,7 +31,9 @@ def find_conflicts(installed_mods) -> list[FileConflict]:
             key = rel.lower()
             owners.setdefault(key, []).append((
                 int(getattr(mod, "priority", 0) or 0),
-                float(getattr(mod, "installed_at", 0.0) or 0.0),
+                # Desempate por el ÚLTIMO despliegue (deployed_at); installed_at de respaldo
+                # para registros antiguos.
+                float(getattr(mod, "deployed_at", 0.0) or getattr(mod, "installed_at", 0.0) or 0.0),
                 mod.name, rel,
             ))
 

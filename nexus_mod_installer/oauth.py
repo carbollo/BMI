@@ -31,6 +31,8 @@ import json
 import os
 import secrets
 import sys
+import tempfile
+import threading
 import time
 import warnings
 from dataclasses import dataclass, asdict
@@ -308,7 +310,23 @@ class TokenStore:
         except secure_store.SecureStoreUnavailable:
             # Sin DPAPI (dev no-Windows): NO escribir en claro; el token vive solo en memoria.
             return
-        self.path.write_bytes(blob)
+        # Escritura ATÓMICA (temp + os.replace) en el mismo directorio: una interrupción o dos
+        # guardados concurrentes no dejan el token cifrado truncado (un blob DPAPI a medias es
+        # ilegible y obligaría a re-loguear).
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=str(self.path.parent), prefix=self.path.stem + "_", suffix=".tmp")
+        try:
+            with os.fdopen(fd, "wb") as f:
+                f.write(blob)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, self.path)
+        except BaseException:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
         # Por si acaso quedara un token plano antiguo, elimínalo.
         try:
             if self._legacy.is_file():
@@ -330,6 +348,11 @@ class OAuthSession:
     def __init__(self, store: TokenStore | None = None):
         self.store = store or TokenStore()
         self.token: OAuthToken | None = self.store.load()
+        # Serializa el refresco: varios hilos (worker de descargas + GUI) piden el token a la vez.
+        # Sin esto, dos hilos verían el token caducado y lanzarían DOS refrescos con el mismo
+        # refresh_token; Nexus invalida el anterior en cada uso, así que el segundo fallaría y
+        # tumbaría la sesión. El lock + doble comprobación garantiza un solo refresco.
+        self._refresh_lock = threading.Lock()
 
     @property
     def is_logged_in(self) -> bool:
@@ -344,11 +367,19 @@ class OAuthSession:
         self.store.clear()
 
     def valid_access_token(self) -> str:
-        if not self.token:
+        tok = self.token
+        if not tok:
             raise OAuthError("No hay sesión OAuth: inicia sesión con Nexus.")
-        if self.token.is_expired and self.token.refresh_token:
-            self.set_token(refresh_token(self.token.refresh_token))
-        return self.token.access_token
+        if tok.is_expired and tok.refresh_token:
+            with self._refresh_lock:
+                # Doble comprobación: otro hilo pudo refrescar mientras esperábamos el lock.
+                tok = self.token
+                if tok and tok.is_expired and tok.refresh_token:
+                    self.set_token(refresh_token(tok.refresh_token))
+                tok = self.token
+        if not tok:
+            raise OAuthError("No hay sesión OAuth: inicia sesión con Nexus.")
+        return tok.access_token
 
     def access_token_or_none(self) -> str | None:
         """Token de acceso vigente (refrescándolo si caducó) o None si no hay sesión.

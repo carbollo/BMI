@@ -6,7 +6,7 @@ Detección (vías best-effort, en orden):
   2. Búsqueda GraphQL v2 por nombre + filtro de idioma (languageName)
      (api.nexusmods.com/v2/graphql; funciona sin API key).
 
-El idioma objetivo es el de la app (config.language: es/en/fr/de/it). Las funciones de
+El idioma objetivo es el de la app (config.language: es/en/fr/de/it/ru). Las funciones de
 heurística (detección de idioma y solapamiento de nombre) son puras y están cubiertas
 por tests. Se conservan envoltorios `*_spanish*` por compatibilidad.
 """
@@ -23,6 +23,7 @@ NEXUS_LANGUAGE_NAME = {
     "fr": "French",
     "de": "German",
     "it": "Italian",
+    "ru": "Russian",
 }
 
 # Palabras que delatan cada idioma en nombres de archivo/opción de mod.
@@ -35,6 +36,8 @@ LANGUAGE_KEYWORDS = {
            "traduction francaise", "traduction"],
     "de": ["deutsch", "german", "übersetzung", "ubersetzung", "deutsche übersetzung"],
     "it": ["italiano", "italian", "traduzione", "traduzione italiana"],
+    "ru": ["russian", "русский", "русская", "русификатор", "русик",
+           "перевод на русский", "перевод", "russian translation"],
 }
 
 # Fragmentos de idioma a IGNORAR al comparar nombres de mods (para que
@@ -44,6 +47,7 @@ _LANG_FRAGMENTS = (
     "english", "ingl", "french", "français", "francais",
     "german", "deutsch", "übersetzung", "ubersetzung",
     "italian", "italiano", "traduzione", "traduction",
+    "russian", "русск", "русиф", "русик", "перевод",
 )
 
 # Palabras irrelevantes al comparar nombres de mods.
@@ -54,7 +58,7 @@ _STOP = {
 
 
 def looks_language(name: str, lang: str) -> bool:
-    """True si el nombre sugiere una traducción al idioma ``lang`` (es/en/fr/de/it)."""
+    """True si el nombre sugiere una traducción al idioma ``lang`` (es/en/fr/de/it/ru)."""
     keywords = LANGUAGE_KEYWORDS.get(lang)
     if not keywords:
         return False
@@ -68,7 +72,7 @@ def looks_spanish(name: str) -> bool:
 
 
 def _tokens(name: str) -> set[str]:
-    toks = re.split(r"[^a-z0-9áéíóúñ]+", name.lower())
+    toks = re.split(r"[^a-z0-9áéíóúñа-яё]+", name.lower())
     out = set()
     for t in toks:
         if len(t) > 2 and t not in _STOP and not any(k in t for k in _LANG_FRAGMENTS):

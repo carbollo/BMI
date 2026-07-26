@@ -5,11 +5,37 @@ del juego (ver games.py).
 """
 from __future__ import annotations
 
+import os
 import re
+import tempfile
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 
 from . import games
+
+# Lock ÚNICO que serializa TODO acceso read-modify-write a plugins.txt (lo comparten el hilo
+# worker de instalación y el hilo de la GUI; deploy.py lo importa y usa también). Evita que dos
+# escrituras se pisen o dejen el archivo truncado.
+PLUGINS_TXT_LOCK = threading.RLock()
+
+
+def _atomic_write_text(p: Path, text: str) -> None:
+    """Escritura ATÓMICA (temp + os.replace): una interrupción no deja el archivo truncado."""
+    p.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=str(p.parent), prefix=p.stem + "_", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, p)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 PLUGIN_EXTS = {".esp", ".esm", ".esl"}
 
@@ -149,36 +175,35 @@ def set_plugin_enabled(plugins_txt_path: str, name: str, enabled: bool,
     """
     if not plugins_txt_path:
         return  # juego sin plugins.txt (p.ej. Morrowind)
-    p = Path(plugins_txt_path)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    lines = (
-        p.read_text(encoding="utf-8-sig", errors="ignore").splitlines()
-        if p.is_file() else []
-    )
     target = name.lower()
-    found = False
-    new_lines: list[str] = []
-    for raw in lines:
-        stripped = raw.strip()
-        if not stripped or stripped.startswith("#"):
-            new_lines.append(raw)
-            continue
-        bare = stripped.lstrip("*").strip()
-        if bare.lower() == target:
-            found = True
-            if not star_prefix and not enabled:
-                continue  # sin '*': desactivar = quitar la línea
-            if star_prefix:
-                new_lines.append(("*" if enabled else "") + bare)
+    with PLUGINS_TXT_LOCK:                         # read-modify-write completo bajo el lock
+        p = Path(plugins_txt_path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        lines = (
+            p.read_text(encoding="utf-8-sig", errors="ignore").splitlines()
+            if p.is_file() else []
+        )
+        found = False
+        new_lines: list[str] = []
+        for raw in lines:
+            stripped = raw.strip()
+            if not stripped or stripped.startswith("#"):
+                new_lines.append(raw)
+                continue
+            bare = stripped.lstrip("*").strip()
+            if bare.lower() == target:
+                found = True
+                if not star_prefix and not enabled:
+                    continue  # sin '*': desactivar = quitar la línea
+                if star_prefix:
+                    new_lines.append(("*" if enabled else "") + bare)
+                else:
+                    new_lines.append(bare)  # listado = activo
             else:
-                new_lines.append(bare)  # listado = activo
-        else:
-            new_lines.append(raw)
-
-    if not found and enabled:
-        new_lines.append(("*" if star_prefix else "") + name)
-
-    p.write_text("\n".join(new_lines).strip() + "\n", encoding="utf-8")
+                new_lines.append(raw)
+        if not found and enabled:
+            new_lines.append(("*" if star_prefix else "") + name)
+        _atomic_write_text(p, "\n".join(new_lines).strip() + "\n")
 
 
 def write_load_order(plugins_txt_path: str, ordered_names: list[str],
@@ -188,34 +213,36 @@ def write_load_order(plugins_txt_path: str, ordered_names: list[str],
     Lee con utf-8-sig (BOM)."""
     if not plugins_txt_path:
         return  # juego sin plugins.txt (p.ej. Morrowind)
-    enabled_map, _ = parse_plugins_txt(plugins_txt_path, star_prefix)
-    p = Path(plugins_txt_path)
-    p.parent.mkdir(parents=True, exist_ok=True)
+    with PLUGINS_TXT_LOCK:                         # read-modify-write completo bajo el lock
+        enabled_map, _ = parse_plugins_txt(plugins_txt_path, star_prefix)
+        p = Path(plugins_txt_path)
+        p.parent.mkdir(parents=True, exist_ok=True)
 
-    lines: list[str] = []
-    seen: set[str] = set()
-    for nm in ordered_names:
-        key = nm.lower()
-        if key in seen:
-            continue
-        active = enabled_map.get(key, False)  # ausente = inactivo
-        if not star_prefix:
-            if not active:
-                seen.add(key)
-                continue  # sin '*': solo se listan los activos
-            lines.append(nm)
-        else:
-            lines.append(("*" if active else "") + nm)
-        seen.add(key)
-
-    if p.is_file():
-        for raw in p.read_text(encoding="utf-8-sig", errors="ignore").splitlines():
-            s = raw.strip()
-            if not s or s.startswith("#"):
+        lines: list[str] = []
+        seen: set[str] = set()
+        for nm in ordered_names:
+            key = nm.lower()
+            if key in seen:
                 continue
-            bare = s.lstrip("*").strip()
-            if bare and bare.lower() not in seen:
-                lines.append(s)
-                seen.add(bare.lower())
+            active = enabled_map.get(key, False)  # ausente = inactivo
+            if not star_prefix:
+                if not active:
+                    seen.add(key)
+                    continue  # sin '*': solo se listan los activos
+                lines.append(nm)
+            else:
+                lines.append(("*" if active else "") + nm)
+            seen.add(key)
 
-    p.write_text("\n".join(lines).strip() + "\n", encoding="utf-8")
+        if p.is_file():
+            for raw in p.read_text(encoding="utf-8-sig", errors="ignore").splitlines():
+                s = raw.strip()
+                if not s or s.startswith("#"):
+                    continue
+                bare = s.lstrip("*").strip()
+                if bare and bare.lower() not in seen:
+                    lines.append(s)
+                    seen.add(bare.lower())
+
+        # Escritura ATÓMICA (temp + os.replace); si falla propaga para que el llamante avise.
+        _atomic_write_text(p, "\n".join(lines).strip() + "\n")

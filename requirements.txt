@@ -5,3 +5,6 @@ requests>=2.28         # Cliente HTTP para la API de Nexus y descargas
 # Extracción de archivos (opcionales pero recomendados)
 py7zr>=0.20            # Archivos .7z (muy comunes en Nexus)
 rarfile>=4.0          # Archivos .rar  (requiere 7-Zip o WinRAR/unrar en el sistema)
+
+# Ordenación estilo LOOT
+PyYAML>=6.0           # Parseo del masterlist de LOOT (nexus_mod_installer/loot.py)

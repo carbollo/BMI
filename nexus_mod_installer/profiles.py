@@ -58,9 +58,12 @@ class ProfileStore:
         dest = self._path(name)
         dest.write_text(content, encoding="utf-8")
         if mods is not None:
+            # != 0 (no > 0): los mods importados tienen id NEGATIVO estable y su estado
+            # (activado/prioridad/categoría) también debe guardarse; solo se excluye el
+            # centinela 0 (id desconocido).
             state = {str(m.mod_id): {"enabled": bool(m.enabled), "priority": int(m.priority),
                                      "category": m.category or ""}
-                     for m in mods if m.mod_id > 0}
+                     for m in mods if m.mod_id != 0}
             self._json_path(name).write_text(
                 json.dumps({"mods": state}, ensure_ascii=False, indent=2), encoding="utf-8")
         return Profile(name=dest.stem, file=str(dest))

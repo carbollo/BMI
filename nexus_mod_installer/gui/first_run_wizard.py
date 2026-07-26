@@ -56,7 +56,7 @@ class FirstRunWizard(QDialog):
         v.addWidget(QLabel(tr("Elige el juego:")))
         self.game_combo = QComboBox()
         for g in games.all_games():
-            self.game_combo.addItem(g.name, g.key)
+            self.game_combo.addItem(g.display, g.key)
         gi = self.game_combo.findData(self.config.game_domain)
         self.game_combo.setCurrentIndex(gi if gi >= 0 else 0)
         self.game_combo.currentIndexChanged.connect(self._sync_data_default)

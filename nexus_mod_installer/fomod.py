@@ -34,12 +34,16 @@ class FomodFile:
 class Dependency:
     operator: str = "And"                      # "And" / "Or"
     flags: list[tuple[str, str]] = field(default_factory=list)  # (flag, valor)
+    children: list["Dependency"] = field(default_factory=list)  # <dependencies> anidadas
     has_unsupported: bool = False              # había fileDependency u otra no evaluable
 
     def evaluate(self, flags_state: dict[str, str]) -> bool:
-        if not self.flags:
-            return True  # sin condiciones de flag -> visible/instalable
+        # Se evalúan flags propias + subdependencias anidadas, cada una con SU operador
+        # (así 'And(A, Or(B,C))' no se aplana a 'And(A,B,C)').
         checks = [flags_state.get(name, "") == value for name, value in self.flags]
+        checks += [child.evaluate(flags_state) for child in self.children]
+        if not checks:
+            return True  # sin condiciones -> visible/instalable
         if self.operator.lower() == "or":
             return any(checks)
         return all(checks)
@@ -115,12 +119,24 @@ def _findall(el: ET.Element, name: str) -> list[ET.Element]:
     return [c for c in el if _strip_ns(c.tag).lower() == name.lower()]
 
 
+def _is_within(child: Path, root: Path) -> bool:
+    """True si ``child`` queda DENTRO de ``root`` tras resolver symlinks y componentes '..'.
+    Barrera contra path traversal (zip-slip) con ModuleConfig.xml de terceros."""
+    try:
+        child.resolve().relative_to(root.resolve())
+        return True
+    except (ValueError, OSError):
+        return False
+
+
 def _resolve_source(pkg_root: Path, source: str) -> Path | None:
     source = (source or "").replace("\\", "/").strip("/")
     if not source:
         return pkg_root
+    if ".." in source.split("/"):          # no permitir salir del paquete (exfiltración)
+        return None
     direct = pkg_root / source
-    if direct.exists():
+    if direct.exists() and _is_within(direct, pkg_root):
         return direct
     current = pkg_root
     for part in source.split("/"):
@@ -130,7 +146,7 @@ def _resolve_source(pkg_root: Path, source: str) -> Path | None:
         if match is None:
             return None
         current = match
-    return current
+    return current if _is_within(current, pkg_root) else None
 
 
 # ---------------------------------------------------------------------------
@@ -169,9 +185,9 @@ def _parse_dependency(deps_el: ET.Element | None) -> Dependency:
         if tag == "flagdependency":
             dep.flags.append((child.get("flag", ""), child.get("value", "")))
         elif tag == "dependencies":
-            # Anidadas: aplanamos de forma simple.
+            # Anidadas: se conservan como subdependencia (con su propio operador).
             nested = _parse_dependency(child)
-            dep.flags.extend(nested.flags)
+            dep.children.append(nested)
             dep.has_unsupported = dep.has_unsupported or nested.has_unsupported
         else:
             # fileDependency, gameDependency, etc. -> no evaluables aquí.
@@ -329,12 +345,19 @@ def auto_select(config: FomodConfig, prefer_spanish: bool = False,
 # ---------------------------------------------------------------------------
 def _copy_entry(src: Path, dest_root: Path, destination: str) -> None:
     destination = (destination or "").replace("\\", "/").strip("/")
+    # Seguridad: el destino no puede salir del staging (path traversal / RCE al
+    # escribir en carpetas del sistema). Rechazamos '..' y validamos la contención.
+    if ".." in destination.split("/"):
+        return
+    root = dest_root.resolve()
     if src.is_dir():
         target_base = dest_root / destination if destination else dest_root
         for f in src.rglob("*"):
             if f.is_dir():
                 continue
             dst = target_base / f.relative_to(src)
+            if not _is_within(dst, root):
+                continue
             dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(f, dst)
     elif src.is_file():
@@ -344,6 +367,8 @@ def _copy_entry(src: Path, dest_root: Path, destination: str) -> None:
                 dst = dst / src.name
         else:
             dst = dest_root / src.name
+        if not _is_within(dst, root):
+            return
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src, dst)
 

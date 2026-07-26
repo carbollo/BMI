@@ -174,6 +174,7 @@ class Vfs:
             str(cwd) if cwd else None, ctypes.byref(si), ctypes.byref(pi))
         if not ok:
             raise VfsError(f"usvfsCreateProcessHooked falló (err {ctypes.get_last_error()}).")
+        self._pi = pi      # se conserva para poder esperar sobre hProcess si no hay API de listado
         return pi
 
     def alive_count(self) -> int:
@@ -190,14 +191,49 @@ class Vfs:
         return int(count.value)
 
     def wait_for_game(self, initial_grace: float = 4.0, poll: float = 1.0,
-                      should_stop=None) -> None:
+                      should_stop=None, detect_timeout: float = 90.0) -> None:
         """Espera a que TODOS los procesos del VFS terminen (el loader de SKSE acaba pronto
-        pero el juego sigue). ``should_stop`` opcional: callable que aborta la espera."""
+        pero el juego sigue). ``should_stop`` opcional: callable que aborta la espera.
+
+        Robustez: NO da por cerrado el juego hasta haberlo visto vivo al menos una vez
+        (``seen_alive``); si no, un primer sondeo a 0 (disco lento, ENB pesado) desmontaría
+        el VFS con el juego arrancando. Si la DLL de USVFS no expone el listado de procesos,
+        se espera sobre el handle del proceso lanzado en vez de asumir 0."""
         import time
         time.sleep(initial_grace)               # deja arrancar y engancharse al juego
-        while self.alive_count() > 0:
+
+        if not self._GetProcessList:
+            # Sin API de listado: espera sobre el handle del juego (fiable), no sobre el conteo.
+            pi = getattr(self, "_pi", None)
+            h = int(pi.hProcess) if pi and getattr(pi, "hProcess", None) else 0
+            if h:
+                _WAIT_TIMEOUT = 0x00000102
+                while True:
+                    if should_stop and should_stop():
+                        return
+                    res = ctypes.windll.kernel32.WaitForSingleObject(
+                        wintypes.HANDLE(h), int(poll * 1000))
+                    if res != _WAIT_TIMEOUT:    # el proceso terminó (o el handle dejó de valer)
+                        return
+            else:
+                # Ni API ni handle (no debería pasar): no desmontes al instante; espera a
+                # que should_stop lo indique en vez de dejar el juego sin mods.
+                while should_stop and not should_stop():
+                    time.sleep(poll)
+            return
+
+        seen_alive = False
+        deadline = time.monotonic() + detect_timeout
+        while True:
             if should_stop and should_stop():
                 return
+            n = self.alive_count()
+            if n > 0:
+                seen_alive = True
+            elif seen_alive:
+                return                          # lo vimos vivo y ya no hay procesos → cerró
+            elif time.monotonic() > deadline:
+                return                          # nunca llegó a engancharse (timeout de detección)
             time.sleep(poll)
 
     def disconnect(self) -> None:

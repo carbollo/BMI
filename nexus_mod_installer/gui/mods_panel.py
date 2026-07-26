@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTabWidget, QTableWidget, QTableWidgetItem,
     QListWidget, QListWidgetItem, QLineEdit, QPushButton, QLabel, QCheckBox,
     QHeaderView, QAbstractItemView, QMessageBox, QInputDialog, QTreeWidget, QTreeWidgetItem,
+    QFileDialog,
 )
 
 from pathlib import Path
@@ -22,6 +23,7 @@ from .mod_details_dialog import ModDetailsDialog, human_size
 
 # Color del icono según el tipo de plugin.
 _KIND_COLOR = {"ESM": theme.INFO, "ESL": "#a371f7", "ESP": theme.ACCENT}
+_EXT_CAT = "\x00ext"   # clave interna del grupo de mods externos (no es una categoría real)
 
 
 def _centered(widget: QWidget) -> QWidget:
@@ -36,6 +38,8 @@ def _centered(widget: QWidget) -> QWidget:
 
 class ModsPanel(QWidget):
     translate_all_requested = Signal()   # el usuario pidió traducir todos sus mods (vía web)
+    _loot_ready = Signal(object)         # resultado de LOOT (orden/avisos) desde el worker
+    _crash_ready = Signal(object)        # CrashReport|None desde el worker de análisis de crash
 
     _CAT_COLOR = {
         "externo": theme.SUCCESS, "gestionado": theme.INFO,
@@ -51,6 +55,10 @@ class ModsPanel(QWidget):
         self._scan_cache: list = []
         self._esp_cache: dict = {}   # nombre -> (mtime, header) para no re-parsear plugins
         self._row_mods: list = []
+        self._cat_order = None         # orden de categorías por juego (None = sin cargar aún)
+        self._collapsed: set = set()   # separadores plegados
+        self._cat_colors: dict = {}    # categoría -> color hex del separador
+        self._view_game = None
         self._refresh_scheduled = False
         self._order_reorderable = True
         self._order_togglable = True
@@ -65,6 +73,8 @@ class ModsPanel(QWidget):
 
         layout = QVBoxLayout(self)
         layout.addWidget(self.tabs)
+        self._loot_ready.connect(self._apply_loot)     # descarga+orden en hilo → aplica en la GUI
+        self._crash_ready.connect(self._show_crash_report)   # análisis en hilo → diálogo en GUI
         self.refresh()
 
     # ==================================================================
@@ -95,7 +105,30 @@ class ModsPanel(QWidget):
                                    "(GOG en Steam, VR en Skyrim SE)"))
         variants_btn.clicked.connect(self._check_variants)
         top.addWidget(variants_btn)
+        export_btn = QPushButton(tr("📤 Exportar lista"))
+        export_btn.setToolTip(tr("Guarda un .txt con tus mods para reinstalarlos luego "
+                                 "o en otro PC"))
+        export_btn.clicked.connect(self._export_list)
+        top.addWidget(export_btn)
+        import_btn = QPushButton(tr("📥 Importar lista"))
+        import_btn.setToolTip(tr("Carga un .txt de mods y descarga los que te falten "
+                                 "(salta los que ya tengas)"))
+        import_btn.clicked.connect(self._import_list)
+        top.addWidget(import_btn)
+        upd_btn = QPushButton(tr("🔄 Buscar actualizaciones"))
+        upd_btn.setToolTip(tr("Comprueba en Nexus qué mods instalados tienen una versión nueva"))
+        upd_btn.clicked.connect(lambda: self.manager.check_updates())
+        top.addWidget(upd_btn)
+        self.only_updates_cb = QCheckBox(tr("Con actualización"))
+        self.only_updates_cb.setToolTip(tr("Mostrar solo los mods con actualización disponible"))
+        self.only_updates_cb.toggled.connect(self._filter_mods)
+        top.addWidget(self.only_updates_cb)
         v.addLayout(top)
+        cat_note = QLabel(tr("Las categorías solo organizan la lista; no cambian el orden de "
+                             "carga. Clic derecho en un mod para asignarle una; clic en un "
+                             "separador para plegarlo."))
+        cat_note.setProperty("role", "dim"); cat_note.setWordWrap(True)
+        v.addWidget(cat_note)
 
         self.mods_table = QTableWidget(0, 5)
         self.mods_table.setHorizontalHeaderLabels(
@@ -104,12 +137,16 @@ class ModsPanel(QWidget):
         self.mods_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.mods_table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.mods_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        theme.make_columns_movable(self.mods_table)   # columnas arrastrables + redimensionables
         self.mods_table.verticalHeader().setVisible(False)
         self.mods_table.verticalHeader().setDefaultSectionSize(32)
         self.mods_table.setAlternatingRowColors(True)
         self.mods_table.setShowGrid(False)
         self.mods_table.setIconSize(QSize(26, 26))
         self.mods_table.doubleClicked.connect(lambda *_: self._details_selected())
+        self.mods_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.mods_table.customContextMenuRequested.connect(self._mods_context_menu)
+        self.mods_table.cellClicked.connect(self._on_mods_cell_clicked)
         v.addWidget(self.mods_table, 1)
 
         bottom = QHBoxLayout()
@@ -124,12 +161,91 @@ class ModsPanel(QWidget):
             (tr("Desactivar"), lambda: self._bulk_enable(False)),
         ]:
             b = QPushButton(text); b.clicked.connect(fn); bottom.addWidget(b)
+        cat_btn = QPushButton(tr("🗂 Categoría"))
+        cat_btn.setToolTip(tr("Asigna los mods seleccionados a una categoría (solo organiza; "
+                              "no cambia el orden de carga)"))
+        cat_btn.clicked.connect(self._assign_category_menu)
+        bottom.addWidget(cat_btn)
+        upd_sel = QPushButton(tr("🔄 Actualizar"))
+        upd_sel.setToolTip(tr("Descarga la versión nueva de los mods seleccionados con actualización"))
+        upd_sel.clicked.connect(self._update_selected)
+        bottom.addWidget(upd_sel)
         uninstall = QPushButton(tr("Desinstalar"))
         uninstall.setProperty("variant", "danger")
         uninstall.clicked.connect(self._bulk_uninstall)
         bottom.addWidget(uninstall)
         v.addLayout(bottom)
         return w
+
+    # ------------------------------------------------------------------
+    # Exportar / importar lista de mods
+    # ------------------------------------------------------------------
+    def _export_list(self) -> None:
+        """Guarda un .txt con los mods gestionados por BMI (dominio · id · nombre)."""
+        from ..modlist import export_text
+        mods = [m for m in self.manager.store.all()
+                if m.mod_id > 0 and not getattr(m, "imported", False)]
+        if not mods:
+            QMessageBox.information(self, tr("Exportar lista"), tr(
+                "No hay mods que exportar. Los mods externos (sin id de Nexus) no se pueden "
+                "volver a descargar por id, así que no se incluyen."))
+            return
+        default = f"mods_{self.config.game_domain}.txt"
+        path, _ = QFileDialog.getSaveFileName(
+            self, tr("Exportar lista de mods"), default, tr("Lista de mods (*.txt)"))
+        if not path:
+            return
+        try:
+            Path(path).write_text(
+                export_text(mods, self.config.game_domain), encoding="utf-8")
+        except OSError as e:
+            QMessageBox.warning(self, tr("Exportar lista"),
+                                tr("No se pudo guardar el archivo: {e}").format(e=e))
+            return
+        QMessageBox.information(self, tr("Exportar lista"),
+                                tr("Lista exportada: {n} mods.").format(n=len(mods)))
+
+    def _import_list(self) -> None:
+        """Carga un .txt de mods y encola los que falten (el gestor salta los ya instalados)."""
+        from ..modlist import parse_text
+        path, _ = QFileDialog.getOpenFileName(
+            self, tr("Importar lista de mods"), "", tr("Lista de mods (*.txt)"))
+        if not path:
+            return
+        try:
+            text = Path(path).read_text(encoding="utf-8-sig", errors="ignore")
+        except OSError as e:
+            QMessageBox.warning(self, tr("Importar lista"),
+                                tr("No se pudo leer el archivo: {e}").format(e=e))
+            return
+        dom = self.config.game_domain
+        entries = parse_text(text, dom)
+        if not entries:
+            QMessageBox.information(self, tr("Importar lista"),
+                                    tr("El archivo no contiene mods reconocibles."))
+            return
+        same = [e for e in entries if e.game_domain == dom]
+        other = len(entries) - len(same)
+        to_get = [e for e in same if not self.manager.store.is_installed(e.mod_id)]
+        already = len(same) - len(to_get)
+        if not to_get:
+            QMessageBox.information(self, tr("Importar lista"), tr(
+                "Ya tienes los {n} mods de la lista para este juego.").format(n=len(same)))
+            return
+        msg = tr("Se descargarán {n} mods de la lista.").format(n=len(to_get))
+        if already:
+            msg += "\n" + tr("{n} ya los tienes: se saltan.").format(n=already)
+        if other:
+            msg += "\n" + tr("{n} son de otro juego: se ignoran (cambia de juego para "
+                             "importarlos).").format(n=other)
+        msg += "\n\n" + tr("¿Descargar ahora?")
+        if QMessageBox.question(self, tr("Importar lista"), msg) \
+                != QMessageBox.StandardButton.Yes:
+            return
+        for e in to_get:
+            self.manager.enqueue_mod(e.game_domain, e.mod_id)
+        self.manager.log.emit(
+            tr("📥 Importados {n} mods de la lista; descargando…").format(n=len(to_get)))
 
     def _refresh_mods(self) -> None:
         # Mods GESTIONADOS por BMI (del almacén) + mods EXTERNOS detectados por el escáner
@@ -145,32 +261,84 @@ class ModsPanel(QWidget):
                     plugins=[dm.name], enabled=dm.enabled))
         external.sort(key=lambda m: m.name.lower())
 
-        # (mod, es_externo) por fila
-        self._row_mods = [(m, False) for m in managed] + [(m, True) for m in external]
+        # Agrupar los gestionados por categoría; el orden de categorías es el guardado por el
+        # usuario, con las nuevas añadidas al final. Las categorías vacías desaparecen.
+        self._ensure_view_state()
+        by_cat: dict[str, list] = {}
+        for m in managed:
+            by_cat.setdefault(m.category or "", []).append(m)
+        named = list(dict.fromkeys(c for c in self._cat_order if c in by_cat))
+        for c in sorted(k for k in by_cat if k and k not in named):
+            named.append(c)
+        if named != self._cat_order:
+            self._cat_order = list(named)
+            self._save_view_state()
+
+        self._row_mods = []
         self._populating = True
         self.mods_table.setRowCount(0)
-        for mod, is_ext in self._row_mods:
-            row = self.mods_table.rowCount()
-            self.mods_table.insertRow(row)
-            cb = QCheckBox()
-            cb.setChecked(mod.enabled)
-            cb.toggled.connect(lambda on, r=row: self._toggle_row(r, on))
-            self.mods_table.setCellWidget(row, 0, _centered(cb))
-            name_item = QTableWidgetItem(mod.name)
-            if is_ext:
-                name_item.setForeground(QColor(theme.SUCCESS))
-                name_item.setToolTip(tr("Mod externo (instalado fuera de BMI)"))
-            elif not mod.enabled:
-                name_item.setForeground(QColor(theme.TEXT_DIM))
-            self.mods_table.setItem(row, 1, name_item)
-            if not is_ext and getattr(mod, "picture_url", ""):
-                images.make_icon_async(mod.picture_url, name_item, 26)
-            self.mods_table.setItem(row, 2, QTableWidgetItem(mod.version or "—"))
-            self.mods_table.setItem(row, 3, QTableWidgetItem(", ".join(mod.plugins) or "—"))
-            self.mods_table.setItem(row, 4,
-                QTableWidgetItem("—" if is_ext else human_size(mod.size_bytes)))
+        if not (named or external):
+            # Sin categorías ni externos: lista plana (como antes), sin separadores.
+            for m in by_cat.get("", []):
+                self._add_mod_row(m, False)
+        else:
+            for key in named:
+                self._add_separator_row(key, key, len(by_cat[key]))
+                for m in by_cat[key]:
+                    self._add_mod_row(m, False)
+            if by_cat.get(""):
+                self._add_separator_row("", tr("Sin categoría"), len(by_cat[""]))
+                for m in by_cat[""]:
+                    self._add_mod_row(m, False)
+            if external:
+                self._add_separator_row(_EXT_CAT, tr("Externos (fuera de BMI)"), len(external))
+                for m in external:
+                    self._add_mod_row(m, True)
         self._populating = False
         self._filter_mods()
+
+    def _add_separator_row(self, key: str, label: str, count: int) -> None:
+        """Fila-cabecera de categoría (abarca las 5 columnas). Marca en ``_row_mods`` con
+        ``(None, key)`` para distinguirla de una fila de mod."""
+        row = self.mods_table.rowCount()
+        self.mods_table.insertRow(row)
+        arrow = "▸" if key in self._collapsed else "▾"
+        it = QTableWidgetItem(f"   {arrow}   {label}    ({count})")
+        f = it.font(); f.setBold(True); it.setFont(f)
+        color = self._cat_colors.get(key) or theme.ACCENT
+        it.setForeground(QColor(color))
+        bg = QColor(color); bg.setAlpha(38); it.setBackground(bg)
+        it.setFlags(Qt.ItemFlag.ItemIsEnabled)   # no seleccionable ni editable
+        self.mods_table.setItem(row, 0, it)
+        self.mods_table.setSpan(row, 0, 1, 5)
+        self._row_mods.append((None, key))
+
+    def _add_mod_row(self, mod: InstalledMod, is_ext: bool) -> None:
+        row = self.mods_table.rowCount()
+        self.mods_table.insertRow(row)
+        cb = QCheckBox()
+        cb.setChecked(mod.enabled)
+        cb.toggled.connect(lambda on, r=row: self._toggle_row(r, on))
+        self.mods_table.setCellWidget(row, 0, _centered(cb))
+        name_item = QTableWidgetItem(mod.name)
+        if is_ext:
+            name_item.setForeground(QColor(theme.SUCCESS))
+            name_item.setToolTip(tr("Mod externo (instalado fuera de BMI)"))
+        elif not mod.enabled:
+            name_item.setForeground(QColor(theme.TEXT_DIM))
+        self.mods_table.setItem(row, 1, name_item)
+        if not is_ext and getattr(mod, "picture_url", ""):
+            images.make_icon_async(mod.picture_url, name_item, 26)
+        has_update = (not is_ext) and mod.mod_id in self.manager.updates_available
+        ver_item = QTableWidgetItem(("⬆ " if has_update else "") + (mod.version or "—"))
+        if has_update:
+            ver_item.setForeground(QColor(theme.ACCENT))
+            ver_item.setToolTip(tr("Hay una versión más nueva en Nexus"))
+        self.mods_table.setItem(row, 2, ver_item)
+        self.mods_table.setItem(row, 3, QTableWidgetItem(", ".join(mod.plugins) or "—"))
+        self.mods_table.setItem(row, 4,
+            QTableWidgetItem("—" if is_ext else human_size(mod.size_bytes)))
+        self._row_mods.append((mod, is_ext))
 
     def _check_variants(self) -> None:
         """Lista los mods instalados cuya variante NO corresponde a la plataforma del juego
@@ -195,8 +363,8 @@ class ModsPanel(QWidget):
             .format(p=plat_txt, lines=lines, more=more))
 
     def _translate_all(self) -> None:
-        """Pide traducir todos los mods buscando las traducciones con la API oficial de Nexus.
-        Lo ejecuta la ventana principal."""
+        """Pide traducir todos los mods leyendo la lista OFICIAL de traducciones de la página
+        de cada mod (vía el navegador embebido). Lo ejecuta la ventana principal."""
         mods = [m for m in self.manager.store.all() if getattr(m, "mod_id", 0) and m.mod_id > 0]
         if not mods:
             QMessageBox.information(self, tr("Traducir mis mods"),
@@ -209,30 +377,68 @@ class ModsPanel(QWidget):
             return
         ans = QMessageBox.question(
             self, tr("Traducir mis mods"),
-            tr("BMI buscará en Nexus la traducción a tu idioma de tus {n} mods instalados y "
-               "encolará las que encuentre.\n\n¿Continuar?").format(n=len(mods)))
+            tr("BMI abrirá la página de cada uno de tus {n} mods en su navegador para leer su "
+               "lista OFICIAL de traducciones («Translations available on the Nexus») y "
+               "encolar la de tu idioma si existe.\n\nTarda un poco (una página por mod) e "
+               "conviene tener la sesión de Nexus iniciada. ¿Continuar?").format(n=len(mods)))
         if ans != QMessageBox.StandardButton.Yes:
             return
         self.translate_all_requested.emit()
 
     def _filter_mods(self) -> None:
         term = self.search_edit.text().lower().strip()
+        only_upd = bool(getattr(self, "only_updates_cb", None)
+                        and self.only_updates_cb.isChecked())
+        upd = self.manager.updates_available
+        # Solo se puede plegar una categoría que TENGA separador visible; si no (lista plana
+        # sin categorías) un '' plegado heredado no debe ocultar todos los mods.
+        present_seps = {k for (mm, k) in self._row_mods if mm is None}
         shown = 0
-        for row in range(self.mods_table.rowCount()):
-            name = self.mods_table.item(row, 1).text().lower()
-            hide = bool(term) and term not in name
+        for row, (mod, tag) in enumerate(self._row_mods):
+            if mod is None:                       # separador: oculto al buscar o al filtrar
+                self.mods_table.setRowHidden(row, bool(term) or only_upd)
+                continue
+            has_update = (not tag) and mod.mod_id in upd
+            if only_upd and not has_update:
+                hide = True
+            elif term:
+                hide = term not in mod.name.lower()
+            else:                                 # sin búsqueda: respeta el plegado
+                key = _EXT_CAT if tag else (mod.category or "")
+                hide = key in self._collapsed and key in present_seps
             self.mods_table.setRowHidden(row, hide)
             if not hide:
                 shown += 1
         self.sel_label.setText(tr("{n} mod(s)").format(n=shown))
 
+    def _update_selected(self) -> None:
+        """Descarga la versión nueva de los mods seleccionados que tengan actualización
+        (re-encola por id: el gestor baja el archivo principal actual y reinstala)."""
+        mods = [m for m, ext in self._selected_entries()
+                if not ext and m.mod_id in self.manager.updates_available]
+        if not mods:
+            QMessageBox.information(self, tr("Actualizar"), tr(
+                "Selecciona mods marcados con ⬆ (pulsa «Buscar actualizaciones» primero)."))
+            return
+        for m in mods:
+            self.manager.enqueue_mod(
+                getattr(m, "game_domain", "") or self.config.game_domain, m.mod_id,
+                is_update=True)
+        # El ⬆ NO se borra aquí (si la descarga fallara se perdería el aviso): se recalcula al
+        # instalar la versión nueva (su file_updated_at pasa a ser el actual) en la próxima
+        # comprobación.
+        self.manager.log.emit(tr("🔄 Actualizando {n} mod(s)…").format(n=len(mods)))
+        self.refresh()
+
     def _selected_entries(self) -> list[tuple[InstalledMod, bool]]:
-        """Devuelve [(mod, es_externo), ...] de las filas seleccionadas."""
+        """Devuelve [(mod, es_externo), ...] de las filas seleccionadas (omite separadores)."""
         out = []
         for idx in self.mods_table.selectionModel().selectedRows():
             r = idx.row()
             if 0 <= r < len(self._row_mods):
-                out.append(self._row_mods[r])
+                mod, tag = self._row_mods[r]
+                if mod is not None:
+                    out.append((mod, tag))
         return out
 
     def _set_enabled(self, mod: InstalledMod, is_ext: bool, enabled: bool) -> None:
@@ -251,6 +457,8 @@ class ModsPanel(QWidget):
         if self._populating or not (0 <= row < len(self._row_mods)):
             return
         mod, is_ext = self._row_mods[row]
+        if mod is None:                           # fila de separador (sin checkbox)
+            return
         self._set_enabled(mod, is_ext, enabled)
         self.request_refresh()
 
@@ -264,8 +472,15 @@ class ModsPanel(QWidget):
 
     def _bulk_uninstall(self) -> None:
         ents = self._selected_entries()
-        managed = [m for m, ext in ents if not ext]
+        managed_all = [m for m, ext in ents if not ext]
         n_ext = sum(1 for _, ext in ents if ext)
+        # Los IMPORTADOS (id negativo / imported=True) no los instaló BMI: su carpeta origen
+        # no está en el layout {id}_{name}, así que uninstall no la borraría y el mod
+        # reaparecería "activado" con sus plugins desactivados (estado incoherente). Se
+        # gestionan borrando su carpeta origen, no desde aquí → se excluyen como los externos.
+        managed = [m for m in managed_all
+                   if not (getattr(m, "imported", False) or m.mod_id < 0)]
+        n_imp = len(managed_all) - len(managed)
         if not managed:
             QMessageBox.information(
                 self, tr("Desinstalar"),
@@ -279,9 +494,10 @@ class ModsPanel(QWidget):
             return
         for m in managed:
             self.manager.installer.uninstall(m.mod_id, log=self.manager.log.emit)
-        if n_ext:
+        if n_ext + n_imp:
             self.manager.log.emit(
-                f"{n_ext} mod(s) externo(s) no se desinstalan (no los instaló BMI).")
+                f"{n_ext + n_imp} mod(s) externo(s)/importado(s) no se desinstalan "
+                "(no los instaló BMI).")
         self.refresh()
 
     def _details_selected(self) -> None:
@@ -294,6 +510,209 @@ class ModsPanel(QWidget):
         ModDetailsDialog(mod, self, store=self.manager.store,
                          installer=self.manager.installer).exec()
         self.request_refresh()
+
+    # ==================================================================
+    # Categorías (separadores) de la lista de Mods — SOLO organizan la vista:
+    # no tocan plugins.txt, el orden de carga ni la prioridad de sobrescritura.
+    # El estado (orden de categorías + plegados) se guarda por juego en un JSON.
+    # ==================================================================
+    def _view_state_path(self) -> Path:
+        return Path(self.config.mods_dir).parent / f"mod_view_{self.config.game_domain}.json"
+
+    def _ensure_view_state(self) -> None:
+        dom = self.config.game_domain
+        if self._view_game == dom and self._cat_order is not None:
+            return
+        self._view_game = dom
+        self._cat_order = []
+        self._collapsed = set()
+        self._cat_colors = {}
+        try:
+            import json
+            p = self._view_state_path()
+            if p.is_file():
+                d = json.loads(p.read_text(encoding="utf-8"))
+                self._cat_order = [str(x) for x in d.get("order", [])]
+                self._collapsed = {str(x) for x in d.get("collapsed", [])}
+                self._cat_colors = {str(k): str(v) for k, v in (d.get("colors") or {}).items()}
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _save_view_state(self) -> None:
+        try:
+            import json
+            self._view_state_path().write_text(
+                json.dumps({"order": self._cat_order, "collapsed": sorted(self._collapsed),
+                            "colors": self._cat_colors},
+                           ensure_ascii=False, indent=1), encoding="utf-8")
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _existing_categories(self) -> list[str]:
+        cats = {(m.category or "") for m in self.manager.store.all() if (m.category or "")}
+        ordered = [c for c in (self._cat_order or []) if c in cats]
+        ordered += sorted(c for c in cats if c not in ordered)
+        return ordered
+
+    def _on_mods_cell_clicked(self, row: int, _col: int) -> None:
+        """Clic en un separador → plegar/desplegar su categoría."""
+        if not (0 <= row < len(self._row_mods)):
+            return
+        mod, key = self._row_mods[row]
+        if mod is not None:
+            return
+        if key in self._collapsed:
+            self._collapsed.discard(key)
+        else:
+            self._collapsed.add(key)
+        self._save_view_state()
+        it = self.mods_table.item(row, 0)
+        if it:
+            arrow = "▸" if key in self._collapsed else "▾"
+            it.setText(it.text().replace("▾", arrow).replace("▸", arrow))
+        self._filter_mods()
+
+    def _mods_context_menu(self, pos) -> None:
+        from PySide6.QtWidgets import QMenu
+        row = self.mods_table.rowAt(pos.y())
+        menu = QMenu(self)
+        if 0 <= row < len(self._row_mods) and self._row_mods[row][0] is None:
+            key = self._row_mods[row][1]
+            if key not in ("", _EXT_CAT):        # categoría real (no «Sin categoría»/«Externos»)
+                menu.addAction(tr("✏ Renombrar categoría"), lambda: self._cat_rename(key))
+                menu.addAction(tr("🎨 Color…"), lambda: self._cat_set_color(key))
+                menu.addAction(tr("🗑 Eliminar categoría"), lambda: self._cat_delete(key))
+                menu.addSeparator()
+                menu.addAction(tr("▲ Subir categoría"), lambda: self._cat_move(key, -1))
+                menu.addAction(tr("▼ Bajar categoría"), lambda: self._cat_move(key, 1))
+        else:
+            managed = [m for m, ext in self._selected_entries() if not ext]
+            if managed:
+                self._fill_category_menu(menu, managed)
+                if any(m.mod_id > 0 for m in managed):
+                    menu.addSeparator()
+                    menu.addAction(tr("👍 Endorsar en Nexus"), self._endorse_selected)
+        if not menu.isEmpty():
+            menu.exec(self.mods_table.viewport().mapToGlobal(pos))
+
+    def _endorse_selected(self) -> None:
+        """Endorsa en Nexus (con la sesión OAuth) los mods seleccionados con id de Nexus."""
+        mods = [m for m, ext in self._selected_entries() if not ext and m.mod_id > 0]
+        if not mods:
+            return
+        if not self.manager.is_logged_in:
+            QMessageBox.information(self, tr("Endorsar"),
+                                   tr("Inicia sesión en Nexus para endorsar mods."))
+            return
+        import threading
+
+        def run():
+            ok = 0
+            for m in mods:
+                try:
+                    self.manager.api.endorse(
+                        getattr(m, "game_domain", "") or self.config.game_domain,
+                        m.mod_id, True, m.version or "")
+                    ok += 1
+                except Exception as e:  # noqa: BLE001
+                    self.manager.log.emit(
+                        tr("No se pudo endorsar «{name}»: {e}").format(name=m.name, e=e))
+            if ok:
+                self.manager.log.emit(tr("👍 {n} mod(s) endorsados en Nexus.").format(n=ok))
+        threading.Thread(target=run, daemon=True).start()
+        self.manager.log.emit(tr("👍 Endorsando {n} mod(s)…").format(n=len(mods)))
+
+    def _assign_category_menu(self) -> None:
+        """Botón «Categoría»: asigna los mods seleccionados a una categoría."""
+        from PySide6.QtGui import QCursor
+        from PySide6.QtWidgets import QMenu
+        managed = [m for m, ext in self._selected_entries() if not ext]
+        if not managed:
+            QMessageBox.information(self, tr("Categorías"), tr(
+                "Selecciona uno o varios mods (instalados por BMI) para asignarles una categoría."))
+            return
+        menu = QMenu(self)
+        self._fill_category_menu(menu, managed)
+        menu.exec(QCursor.pos())
+
+    def _fill_category_menu(self, menu, managed) -> None:
+        sub = menu.addMenu(tr("Asignar a categoría"))
+        for c in self._existing_categories():
+            sub.addAction(c, lambda _=False, cat=c: self._cat_assign(managed, cat))
+        sub.addSeparator()
+        sub.addAction(tr("➕ Nueva categoría…"), lambda: self._cat_assign_new(managed))
+        sub.addAction(tr("✖ Sin categoría"), lambda: self._cat_assign(managed, ""))
+
+    def _cat_assign(self, managed, cat: str) -> None:
+        for m in managed:
+            real = self.manager.store.get(m.mod_id)
+            if real:
+                real.category = cat
+        self.manager.store.save()
+        if cat and cat not in self._cat_order:
+            self._cat_order.append(cat)
+            self._save_view_state()
+        self.refresh()
+
+    def _cat_assign_new(self, managed) -> None:
+        name, ok = QInputDialog.getText(self, tr("Nueva categoría"), tr("Nombre de la categoría:"))
+        if ok and name.strip():
+            self._cat_assign(managed, name.strip())
+
+    def _cat_rename(self, old: str) -> None:
+        new, ok = QInputDialog.getText(self, tr("Renombrar categoría"), tr("Nuevo nombre:"), text=old)
+        new = new.strip() if ok else ""
+        if not new or new == old:
+            return
+        for m in self.manager.store.all():
+            if (m.category or "") == old:
+                m.category = new
+        self.manager.store.save()
+        # dict.fromkeys deduplica: si renombras a una categoría YA existente, se fusionan
+        # (antes quedaban dos separadores con el mismo nombre y mods duplicados).
+        self._cat_order = list(dict.fromkeys(new if c == old else c for c in self._cat_order))
+        if new not in self._cat_order:
+            self._cat_order.append(new)
+        if old in self._collapsed:
+            self._collapsed.discard(old)
+            self._collapsed.add(new)
+        if old in self._cat_colors:
+            self._cat_colors[new] = self._cat_colors.pop(old)
+        self._save_view_state()
+        self.refresh()
+
+    def _cat_delete(self, cat: str) -> None:
+        """Quita la categoría (los mods pasan a «Sin categoría»); NO borra ningún mod."""
+        for m in self.manager.store.all():
+            if (m.category or "") == cat:
+                m.category = ""
+        self.manager.store.save()
+        self._cat_order = [c for c in self._cat_order if c != cat]
+        self._collapsed.discard(cat)
+        self._cat_colors.pop(cat, None)
+        self._save_view_state()
+        self.refresh()
+
+    def _cat_set_color(self, key: str) -> None:
+        """Elige un color para el separador de la categoría (se guarda por juego)."""
+        from PySide6.QtWidgets import QColorDialog
+        cur = QColor(self._cat_colors.get(key) or theme.ACCENT)
+        c = QColorDialog.getColor(cur, self, tr("Color de la categoría"))
+        if c.isValid():
+            self._cat_colors[key] = c.name()
+            self._save_view_state()
+            self.refresh()
+
+    def _cat_move(self, cat: str, delta: int) -> None:
+        order = self._cat_order
+        if cat not in order:
+            return
+        i = order.index(cat)
+        j = i + delta
+        if 0 <= j < len(order):
+            order[i], order[j] = order[j], order[i]
+            self._save_view_state()
+            self.refresh()
 
     # ==================================================================
     # Pestaña: Prioridad (orden de sobrescritura de archivos, estilo MO2)
@@ -469,6 +888,20 @@ class ModsPanel(QWidget):
                          (tr("⚡ Auto-ordenar"), self._auto_sort)]:
             b = QPushButton(text); b.clicked.connect(fn); top.addWidget(b)
             self._order_buttons.append(b)
+        crash_btn = QPushButton(tr("🩺 Analizar último crash"))
+        crash_btn.setToolTip(tr("Lee el crash log más reciente y señala el mod culpable probable"))
+        crash_btn.clicked.connect(self._analyze_crash)
+        top.addWidget(crash_btn)
+        loot_btn = QPushButton(tr("🔃 Ordenar con LOOT"))
+        loot_btn.setToolTip(tr("Descarga el masterlist de LOOT y ordena tus plugins (masters "
+                               "primero + grupos + reglas), con aviso de plugins sucios"))
+        loot_btn.clicked.connect(self._sort_with_loot)
+        top.addWidget(loot_btn)
+        self._loot_btn = loot_btn
+        undo_btn = QPushButton(tr("↩ Deshacer orden"))
+        undo_btn.setToolTip(tr("Restaura el orden de carga anterior a la última ordenación"))
+        undo_btn.clicked.connect(self._undo_load_order)
+        top.addWidget(undo_btn)
         v.addLayout(top)
 
         self.order_list = QListWidget()
@@ -617,6 +1050,206 @@ class ModsPanel(QWidget):
         self.manager.log.emit("Orden de carga aplicado (masters primero).")
         self.refresh()
 
+    def _analyze_crash(self) -> None:
+        """Busca el crash log y lanza el análisis en un WORKER (el mapeo DLL→mod hace rglob
+        sobre las carpetas de mods → pesado; no debe correr en el hilo de la GUI)."""
+        from .. import crashlog
+        p = crashlog.find_latest_crashlog(self.config)
+        if not p:
+            QMessageBox.information(self, tr("Analizar crash"), tr(
+                "No encontré ningún crash log. Instala «Crash Logger SSE» (o «.NET Script "
+                "Framework») y reproduce el fallo: su .txt aparece en Documentos/My Games/"
+                "<juego>/SKSE/Crashlogs."))
+            return
+        try:
+            text = Path(p).read_text(encoding="utf-8", errors="ignore")
+        except OSError as e:  # noqa: BLE001
+            QMessageBox.warning(self, tr("Analizar crash"),
+                                tr("No se pudo leer el crash log: {e}").format(e=e))
+            return
+        self.manager.log.emit(tr("🩺 Analizando el crash log…"))
+        import threading
+        cfg, store, path = self.config, self.manager.store, str(p)
+
+        def work():
+            try:
+                rep = crashlog.parse_and_analyze(cfg, store, text, path)
+            except Exception:  # noqa: BLE001
+                rep = None
+            self._crash_ready.emit(rep)
+        threading.Thread(target=work, daemon=True).start()
+
+    def _show_crash_report(self, rep) -> None:
+        if rep is None:
+            QMessageBox.warning(self, tr("Analizar crash"),
+                                tr("No se pudo analizar el crash log."))
+            return
+        out = [tr("Crash log: {p}").format(p=Path(rep.path).name)]
+        if rep.exception:
+            out.append(rep.exception)
+        out.append("")
+        if rep.culprit_mods:
+            out.append(tr("Culpable(s) PROBABLE(s) — DLL de un mod en la pila del crash:"))
+            out += [f"   • {dll}  →  {mod}" for dll, mod in rep.culprit_mods]
+        elif rep.suspect_dlls:
+            out.append(tr("DLL en la pila del crash (revisa los mods que los traen):"))
+            out += [f"   • {d}" for d in rep.suspect_dlls[:10]]
+        else:
+            out.append(tr("No se identificó un DLL de mod claro en la pila (puede ser un "
+                          "conflicto de plugins o falta de memoria)."))
+        out += ["", tr("⚠ Es una pista PROBABLE, no una certeza. {n} plugins en el log.")
+                .format(n=len(rep.plugins))]
+        QMessageBox.information(self, tr("Análisis del crash"), "\n".join(out))
+
+    # --- Ordenación con LOOT ------------------------------------------
+    def _loot_backup_path(self) -> Path:
+        from ..config import app_data_dir
+        return Path(app_data_dir()) / f"loadorder_{self.config.game_domain}.bak"
+
+    def _snapshot_load_order(self) -> bool:
+        """Copia plugins.txt al .bak (para «Deshacer orden»). Devuelve True si lo consiguió.
+        Si falla, INVALIDA el .bak anterior (obsoleto) para no restaurar un orden equivocado."""
+        import shutil
+        src = self.config.plugins_txt_path
+        bak = self._loot_backup_path()
+        if not (src and Path(src).is_file()):
+            return False
+        try:
+            shutil.copy2(src, bak)
+            return True
+        except OSError:
+            try:                                  # el .bak previo ya no corresponde: retíralo
+                if bak.is_file():
+                    bak.unlink()
+            except OSError:
+                pass
+            return False
+
+    def _undo_load_order(self) -> None:
+        import shutil
+        bak = self._loot_backup_path()
+        if not bak.is_file() or not self.config.plugins_txt_path:
+            QMessageBox.information(self, tr("Deshacer orden"),
+                                   tr("No hay ningún orden de carga anterior guardado."))
+            return
+        try:
+            shutil.copy2(bak, self.config.plugins_txt_path)
+        except OSError as e:  # noqa: BLE001
+            QMessageBox.warning(self, tr("Deshacer orden"), str(e))
+            return
+        self.manager.log.emit(tr("↩ Orden de carga anterior restaurado."))
+        self.refresh()
+
+    def _sort_with_loot(self) -> None:
+        from .. import loot
+        if not (self.config.plugins_txt_path and self.config.game_data_path):
+            QMessageBox.information(self, tr("Ordenar con LOOT"),
+                                   tr("Configura la carpeta Data y plugins.txt en Ajustes."))
+            return
+        dom = self.config.game().domain
+        if not loot.repo_for(dom):
+            QMessageBox.information(self, tr("Ordenar con LOOT"),
+                                   tr("LOOT no tiene masterlist para este juego."))
+            return
+        # Las cabeceras (leen disco + mutan self._esp_cache) se preparan AQUÍ, en el hilo de la
+        # GUI; la descarga+parseo+ordenación pesados van a un worker para no congelar la UI.
+        current = [m.name for m in self._scan_cache if m.category not in ("vanilla",)]
+        if not current:
+            QMessageBox.information(self, tr("Ordenar con LOOT"),
+                                   tr("No hay plugins que ordenar."))
+            return
+        infos = []
+        for i, name in enumerate(current):
+            hdr = self._plugin_header(name) or {}
+            infos.append(loot.PluginInfo(
+                name=name, is_master=bool(hdr.get("is_master")),
+                masters=list(hdr.get("masters") or []), index=i))
+        implicit = list(self.config.game().implicit_masters)   # DLC vanilla → no marcar como "falta"
+        self.manager.log.emit(tr("🔃 Descargando el masterlist de LOOT…"))
+        if hasattr(self, "_loot_btn"):
+            self._loot_btn.setEnabled(False)   # evita relanzar y señala que está trabajando
+        import threading
+
+        def work():
+            res = {"ordered": None, "note": "", "warnings": [], "error": "", "dom": dom}
+            try:
+                txt = loot.download_masterlist(dom, force=True)
+                if not txt:
+                    res["error"] = "download"
+                else:
+                    ml = loot.parse_masterlist(txt)
+                    res["ordered"], res["note"] = loot.sort_plugins(infos, ml)
+                    res["warnings"] = loot.warnings_for(current, ml, present_extra=implicit)
+            except Exception as e:  # noqa: BLE001
+                res["error"] = str(e) or "parse"
+            self._loot_ready.emit(res)
+        threading.Thread(target=work, daemon=True).start()
+
+    def _apply_loot(self, res) -> None:
+        """Slot en el hilo de la GUI: escribe el orden (con red de seguridad) y muestra avisos."""
+        from .. import scanner
+        if hasattr(self, "_loot_btn"):
+            self._loot_btn.setEnabled(True)
+        # A-2: si CAMBIASTE de juego mientras se descargaba/ordenaba el masterlist, NO escribir
+        # (sería el plugins.txt del juego equivocado).
+        if res.get("dom") and self.config.game().domain != res.get("dom"):
+            self.manager.log.emit(tr("🔃 LOOT: cambiaste de juego; el orden se descartó."))
+            return
+        if res.get("error") == "download":
+            QMessageBox.warning(self, tr("Ordenar con LOOT"),
+                                tr("No se pudo obtener el masterlist de LOOT (¿sin conexión?)."))
+            return
+        if res.get("error"):
+            QMessageBox.warning(self, tr("Ordenar con LOOT"),
+                                tr("No se pudo leer el masterlist: {e}").format(e=res["error"]))
+            return
+        ordered = res.get("ordered")
+        if ordered is None:                       # ciclo: NO tocar nada
+            QMessageBox.warning(self, tr("Ordenar con LOOT"), res.get("note") or "")
+            return
+        snapshot_ok = self._snapshot_load_order()
+        try:
+            scanner.write_load_order(self.config.plugins_txt_path, ordered,
+                                     star_prefix=self.config.game().star_prefix)
+        except OSError as e:  # noqa: BLE001
+            QMessageBox.warning(self, tr("Ordenar con LOOT"),
+                                tr("No se pudo escribir plugins.txt: {e}").format(e=e))
+            return
+        if snapshot_ok:
+            self.manager.log.emit(tr("🔃 Orden estilo LOOT aplicado ({n} plugins). Usa «Deshacer "
+                                     "orden» para revertir.").format(n=len(ordered)))
+        else:
+            self.manager.log.emit(tr("🔃 Orden estilo LOOT aplicado ({n} plugins).")
+                                  .format(n=len(ordered)))
+        self._show_loot_warnings(res.get("warnings") or [])
+        self.refresh()
+
+    def _show_loot_warnings(self, warns) -> None:
+        if not warns:
+            self.manager.log.emit(tr("LOOT: sin avisos para tus plugins."))
+            return
+        dirty = [w for w in warns if w.kind == "dirty"]
+        inc = [w for w in warns if w.kind == "inc"]
+        req = [w for w in warns if w.kind == "req"]
+        msg = [w for w in warns if w.kind == "msg"]
+        out: list[str] = []
+        if dirty:
+            out.append(tr("🧹 Plugins sucios ({n}) — límpialos con xEdit QuickAutoClean:")
+                       .format(n=len(dirty)))
+            out += [f"   • {w.plugin}" for w in dirty[:20]]
+        if inc:
+            out += ["", tr("⛔ Incompatibilidades detectadas:")]
+            out += [tr("   • «{a}» es incompatible con «{b}»").format(a=w.plugin, b=w.detail)
+                    for w in inc[:20]]
+        if req:
+            out += ["", tr("🔗 Requisitos que faltan:")]
+            out += [tr("   • «{a}» requiere «{b}» (no activo)").format(a=w.plugin, b=w.detail)
+                    for w in req[:20]]
+        if msg:
+            out += ["", tr("💬 Mensajes de LOOT:")]
+            out += [f"   • {w.plugin}: {w.detail}" for w in msg[:12]]
+        QMessageBox.information(self, tr("Avisos de LOOT"), "\n".join(out))
+
     # ==================================================================
     # Pestaña: Conflictos
     # ==================================================================
@@ -644,6 +1277,9 @@ class ModsPanel(QWidget):
         self.conflict_table.verticalHeader().setDefaultSectionSize(30)
         self.conflict_table.setAlternatingRowColors(True)
         self.conflict_table.setShowGrid(False)
+        theme.make_columns_movable(self.conflict_table)   # arrastrables + redimensionables
+        self.conflict_table.setColumnWidth(1, 260)        # «Mods en conflicto» ancho por defecto
+        self.conflict_table.setColumnWidth(2, 220)        # «Gana»
         v.addWidget(self.conflict_table, 1)
         return w
 
@@ -653,9 +1289,12 @@ class ModsPanel(QWidget):
         for c in items:
             row = self.conflict_table.rowCount()
             self.conflict_table.insertRow(row)
-            self.conflict_table.setItem(row, 0, QTableWidgetItem(c.rel_path))
-            self.conflict_table.setItem(row, 1, QTableWidgetItem(" ▸ ".join(c.mods)))
-            win = QTableWidgetItem(c.winner)
+            it0 = QTableWidgetItem(c.rel_path); it0.setToolTip(c.rel_path)
+            self.conflict_table.setItem(row, 0, it0)
+            mods_txt = " ▸ ".join(c.mods)
+            it1 = QTableWidgetItem(mods_txt); it1.setToolTip(mods_txt)
+            self.conflict_table.setItem(row, 1, it1)
+            win = QTableWidgetItem(c.winner); win.setToolTip(c.winner)
             win.setForeground(QColor(theme.SUCCESS))
             self.conflict_table.setItem(row, 2, win)
         if items:

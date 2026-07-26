@@ -126,7 +126,18 @@ def scan_mods_folder(mods_dir, game_domain: str, known_ids, known_dirs) -> list[
             meta = read_mo2_meta(sub)
             mod_id = int(meta.get("modid", 0)) or _external_id(name)
             if mod_id in used_ids:
-                continue
+                # Otra subcarpeta ya reclamó este id. Es HABITUAL en MO2: varias carpetas
+                # (opciones FOMOD, parches, ficheros extra) descargadas de la MISMA página de
+                # Nexus comparten modid. NO descartamos la carpeta (antes desaparecía y no se
+                # importaba jamás); le damos un id sintético derivado del NOMBRE de carpeta
+                # (único por carpeta) para que conviva con la primera. La primera carpeta
+                # conserva el modid real, así el buscador de actualizaciones sí puede consultar
+                # Nexus por ese mod.
+                mod_id = _external_id(name)
+                _salt = 1
+                while mod_id in used_ids:   # colisión de hash improbable: desambigua con sufijo
+                    mod_id = _external_id(f"{name}#{_salt}")
+                    _salt += 1
             used_ids.add(mod_id)
             try:
                 mtime = sub.stat().st_mtime

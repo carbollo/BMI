@@ -91,6 +91,7 @@ class ToolsDialog(QDialog):
         self.table = QTableWidget(0, 2)
         self.table.setHorizontalHeaderLabels([tr("Nombre"), tr("Ejecutable")])
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        theme.make_columns_movable(self.table)   # columnas arrastrables + redimensionables
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.verticalHeader().setVisible(False)

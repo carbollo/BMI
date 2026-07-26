@@ -48,12 +48,14 @@ def main(argv: list[str] | None = None) -> int:
     argv = list(argv if argv is not None else sys.argv)
     nxm_link = _extract_nxm_arg(argv)
 
-    # QtWebEngine necesita contextos OpenGL compartidos (antes de crear QApplication).
-    QCoreApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts)
-
     app = QApplication(argv)
     app.setApplicationName("BMI")
     app.setOrganizationName("BMI")
+
+    # Puente async→Qt para WebView2 (el navegador embebido usa el runtime WebView2 del
+    # sistema, no Chromium empaquetado). Debe instalarse tras crear la QApplication.
+    from .gui import wv2
+    wv2.init_sync_context()
 
     # Tema oscuro estilo Nexus + icono.
     from .gui import theme

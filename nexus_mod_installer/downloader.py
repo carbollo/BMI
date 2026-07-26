@@ -36,30 +36,40 @@ def download(
     tmp = dest / (name + ".part")
 
     headers = {"User-Agent": "NexusModInstaller/0.1"}
-    with requests.get(url, stream=True, headers=headers, timeout=60) as r:
-        r.raise_for_status()
-        total = int(r.headers.get("Content-Length", 0))
-        downloaded = 0
-        start = time.monotonic()
-        last_emit = 0.0
-        with open(tmp, "wb") as f:
-            for chunk in r.iter_content(chunk_size=chunk_size):
-                if not chunk:
-                    continue
-                f.write(chunk)
-                downloaded += len(chunk)
-                now = time.monotonic()
-                if progress_cb and (now - last_emit) > 0.15:
-                    elapsed = max(now - start, 1e-6)
-                    speed = downloaded / elapsed
-                    progress_cb(downloaded, total, speed)
-                    last_emit = now
-        if progress_cb:
-            elapsed = max(time.monotonic() - start, 1e-6)
-            progress_cb(downloaded, total or downloaded, downloaded / elapsed)
+    success = False
+    try:
+        with requests.get(url, stream=True, headers=headers, timeout=60) as r:
+            r.raise_for_status()
+            total = int(r.headers.get("Content-Length", 0))
+            downloaded = 0
+            start = time.monotonic()
+            last_emit = 0.0
+            with open(tmp, "wb") as f:
+                for chunk in r.iter_content(chunk_size=chunk_size):
+                    if not chunk:
+                        continue
+                    f.write(chunk)
+                    downloaded += len(chunk)
+                    now = time.monotonic()
+                    if progress_cb and (now - last_emit) > 0.15:
+                        elapsed = max(now - start, 1e-6)
+                        speed = downloaded / elapsed
+                        progress_cb(downloaded, total, speed)
+                        last_emit = now
+            if progress_cb:
+                elapsed = max(time.monotonic() - start, 1e-6)
+                progress_cb(downloaded, total or downloaded, downloaded / elapsed)
 
-    # Renombrar .part -> definitivo
-    if target.exists():
-        target.unlink()
-    tmp.rename(target)
-    return target
+        # Renombrar .part -> definitivo
+        if target.exists():
+            target.unlink()
+        tmp.rename(target)
+        success = True
+        return target
+    finally:
+        # Si la descarga se cortó (red/timeout/disco), no dejes el .part huérfano en disco.
+        if not success:
+            try:
+                tmp.unlink()
+            except OSError:
+                pass

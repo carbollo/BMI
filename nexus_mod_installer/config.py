@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 
@@ -111,15 +112,37 @@ class AppConfig:
                         pass
                 return cfg
             except Exception:
-                pass
+                # config.json corrupto (p.ej. un guardado interrumpido): NO lo sobrescribas
+                # en silencio con los valores por defecto — guarda una copia .bak para poder
+                # recuperar rutas/herramientas/perfiles a mano.
+                try:
+                    p.replace(p.with_suffix(".json.bak"))
+                except OSError:
+                    pass
         cfg = cls()
         cfg.ensure_dirs()
         return cfg
 
     def save(self) -> None:
-        self.config_path().write_text(
-            json.dumps(asdict(self), indent=2, ensure_ascii=False), encoding="utf-8"
-        )
+        """Guardado ATÓMICO (temp + os.replace): una interrupción a mitad no deja el
+        config.json truncado, así no se pierden todos los ajustes en el siguiente arranque."""
+        path = self.config_path()
+        payload = json.dumps(asdict(self), indent=2, ensure_ascii=False)
+        d = path.parent
+        d.mkdir(parents=True, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=str(d), prefix="config_", suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(payload)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, path)
+        except BaseException:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
 
     def ensure_dirs(self) -> None:
         for d in (self.downloads_dir, self.mods_dir):

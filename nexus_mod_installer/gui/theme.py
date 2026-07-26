@@ -289,3 +289,25 @@ def make_app_icon(size: int = 256) -> QIcon:
                       size * 0.03, size * 0.03)
     p.end()
     return QIcon(pix)
+
+
+def make_columns_movable(view) -> None:
+    """Permite ARRASTRAR (reordenar) y REDIMENSIONAR las columnas de una QTableWidget o
+    QTreeWidget, para que el usuario reorganice/ensanche columnas y no se corte el contenido.
+    Conserva las columnas en modo Stretch (layout que ocupa el resto) y las Fixed (ancho fijo:
+    p.ej. la barra de progreso y los botones de acción en Descargas, que se romperían si el
+    usuario las estira); las demás pasan a Interactive (redimensionables). La reordenación es
+    SOLO visual: los índices lógicos no cambian, así que setItem(row, col, ...) sigue igual."""
+    from PySide6.QtWidgets import QHeaderView
+    hdr = view.header() if hasattr(view, "header") else view.horizontalHeader()
+    if hdr is None:
+        return
+    hdr.setSectionsMovable(True)
+    hdr.setSectionsClickable(True)
+    _keep = (QHeaderView.ResizeMode.Stretch, QHeaderView.ResizeMode.Fixed)
+    for i in range(hdr.count()):
+        try:
+            if hdr.sectionResizeMode(i) not in _keep:
+                hdr.setSectionResizeMode(i, QHeaderView.ResizeMode.Interactive)
+        except Exception:  # noqa: BLE001
+            pass

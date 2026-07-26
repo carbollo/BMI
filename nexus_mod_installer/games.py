@@ -47,6 +47,14 @@ class GameInfo:
     def data_path_hint(self) -> str:
         return f"{self.steam_folder}\\{self.data_subfolder}"
 
+    @property
+    def display(self) -> str:
+        """Nombre para mostrar en el idioma activo. Los nombres propios no cambian; solo se
+        traduce la parte descriptiva (p.ej. '(clásico)'). Import perezoso de ``tr`` para no
+        acoplar este módulo (sin dependencias) a la i18n en tiempo de carga."""
+        from .i18n import tr
+        return tr(self.name)
+
 
 def _ms(*names: str) -> frozenset:
     return frozenset(n.lower() for n in names)

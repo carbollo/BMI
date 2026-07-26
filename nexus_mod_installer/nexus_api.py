@@ -156,6 +156,40 @@ class NexusApiClient:
         return data[0]["URI"]
 
     # ------------------------------------------------------------------
+    def updated_mods(self, game_domain: str, period: str = "1m") -> list[dict]:
+        """Mods del juego con cambios en el periodo ('1d'/'1w'/'1m'). Cada entrada trae
+        ``mod_id``, ``latest_file_update`` y ``latest_mod_activity`` (epoch). Es UNA sola
+        llamada barata para todo el juego → apenas roza el rate limit."""
+        data = self._get(f"/games/{game_domain}/mods/updated.json", params={"period": period})
+        return data if isinstance(data, list) else []
+
+    def _post(self, path: str, data: dict | None = None) -> dict | list:
+        if not self.has_auth():
+            raise NexusApiError("Inicia sesión con Nexus para continuar.")
+        resp = self._session.post(f"{API_BASE}{path}", headers=self._headers(),
+                                  data=data or None, timeout=30)
+        if resp.status_code == 429:
+            raise RateLimitError("Límite de peticiones alcanzado (rate limit). Espera un momento.", 429)
+        if resp.status_code in (401, 403):
+            raise NexusApiError(f"Acceso denegado ({resp.status_code}).", resp.status_code)
+        if not resp.ok:
+            raise NexusApiError(f"Error de la API ({resp.status_code}): {resp.text[:200]}",
+                                resp.status_code)
+        try:
+            return resp.json()
+        except ValueError:
+            return {}
+
+    def endorse(self, game_domain: str, mod_id: int, endorse: bool = True,
+                version: str = "") -> bool:
+        """Endorsa (o retira el endorsement de) un mod con la sesión OAuth. Nexus exige haber
+        tenido el mod un rato antes de permitir endorsar; en ese caso devuelve error."""
+        action = "endorse" if endorse else "abstain"
+        payload = {"version": version} if version else {}
+        self._post(f"/games/{game_domain}/mods/{mod_id}/{action}.json", payload)
+        return True
+
+    # ------------------------------------------------------------------
     def search_md5(self, game_domain: str, md5: str) -> list:
         """Búsqueda por hash MD5 (útil para identificar archivos ya descargados)."""
         data = self._get(f"/games/{game_domain}/mods/md5_search/{md5}.json")

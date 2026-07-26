@@ -122,6 +122,29 @@ class TitleBar(QWidget):
             self._win.showMaximized()
         self.btn_max.update()
 
+    # --- Arrastre de la ventana (gestionado por Qt) -------------------------------
+    # Con el navegador WebView2 incrustado (ventana hija nativa), el movimiento por el
+    # hit-test nativo (HTCAPTION + bucle de DefWindowProc) deja de funcionar. Usamos
+    # ``QWindow.startSystemMove()``: lanza el movimiento nativo (con Snap a los bordes) desde
+    # el clic en la barra, de forma fiable aunque haya contenido nativo incrustado.
+    def mousePressEvent(self, e) -> None:
+        if (e.button() == Qt.MouseButton.LeftButton
+                and not self.is_over_button(e.position().toPoint())):
+            wh = self._win.windowHandle()
+            if wh is not None:
+                wh.startSystemMove()
+                e.accept()
+                return
+        super().mousePressEvent(e)
+
+    def mouseDoubleClickEvent(self, e) -> None:
+        if (e.button() == Qt.MouseButton.LeftButton
+                and not self.is_over_button(e.position().toPoint())):
+            self._toggle_max()
+            e.accept()
+            return
+        super().mouseDoubleClickEvent(e)
+
     def is_over_button(self, pos) -> bool:
         """¿``pos`` (coordenadas de la barra) cae sobre un botón de ventana? Para que el
         hit-test nativo NO trate esa zona como título (los clics deben llegar al botón)."""

@@ -75,6 +75,7 @@ class ModFileInfo:
     size_kb: int = 0
     file_name: str = ""
     is_primary: bool = False
+    uploaded_timestamp: int = 0     # epoch de subida del archivo (para detectar actualizaciones)
 
     @classmethod
     def from_api(cls, data: dict) -> "ModFileInfo":
@@ -86,6 +87,7 @@ class ModFileInfo:
             size_kb=int(data.get("size_kb") or data.get("size") or 0),
             file_name=data.get("file_name", "") or "",
             is_primary=bool(data.get("is_primary", False)),
+            uploaded_timestamp=int(data.get("uploaded_timestamp") or 0),
         )
 
 
@@ -140,6 +142,7 @@ class DownloadTask:
     mod_name: str = ""
     file_name: str = ""
     version: str = ""
+    file_uploaded_at: int = 0       # epoch de subida del archivo (baseline para actualizaciones)
     picture_url: str = ""           # miniatura del mod en Nexus (si se conoce)
     # Estado
     status: TaskStatus = TaskStatus.QUEUED
@@ -155,6 +158,7 @@ class DownloadTask:
     from_collection: str = ""       # slug de colección, si aplica
     is_dependency: bool = False
     is_translation: bool = False    # es una traducción al español de otro mod
+    is_update: bool = False         # re-descarga para ACTUALIZAR un mod ya instalado
     cancelled: bool = False         # marcada para quitar de la cola (el worker la salta)
 
     @property
@@ -195,7 +199,9 @@ class InstalledMod:
     deployed_root_files: list[str] = field(default_factory=list)
     plugins: list[str] = field(default_factory=list)         # .esp/.esm/.esl detectados
     enabled: bool = True
-    installed_at: float = 0.0          # epoch de instalación (orden de despliegue)
+    installed_at: float = 0.0          # epoch de instalación (FIJO; baseline de actualizaciones)
+    deployed_at: float = 0.0           # epoch del último despliegue (desempate de conflictos)
+    file_updated_at: float = 0.0       # epoch de subida en Nexus del archivo instalado
     size_bytes: int = 0                # tamaño total de los archivos del mod
     picture_url: str = ""              # miniatura del mod en Nexus (si se conoce)
     notes: str = ""                    # notas libres del usuario (configs, detalles…)
@@ -216,6 +222,8 @@ class InstalledMod:
             "plugins": self.plugins,
             "enabled": self.enabled,
             "installed_at": self.installed_at,
+            "deployed_at": self.deployed_at,
+            "file_updated_at": self.file_updated_at,
             "size_bytes": self.size_bytes,
             "picture_url": self.picture_url,
             "notes": self.notes,
@@ -238,6 +246,10 @@ class InstalledMod:
             plugins=list(d.get("plugins", [])),
             enabled=bool(d.get("enabled", True)),
             installed_at=float(d.get("installed_at", 0.0) or 0.0),
+            # Migración: registros antiguos sin deployed_at heredan installed_at (para no romper
+            # el desempate de conflictos de mods ya instalados).
+            deployed_at=float(d.get("deployed_at", d.get("installed_at", 0.0)) or 0.0),
+            file_updated_at=float(d.get("file_updated_at", 0.0) or 0.0),
             size_bytes=int(d.get("size_bytes", 0) or 0),
             picture_url=d.get("picture_url", "") or "",
             notes=d.get("notes", "") or "",

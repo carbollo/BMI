@@ -152,6 +152,7 @@ class DownloadsPanel(QWidget):
         self.table.setColumnWidth(3, 90)
         self.table.setColumnWidth(4, 160)
         self.table.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        theme.make_columns_movable(self.table)   # columnas arrastrables + redimensionables
         v.addWidget(self.table)
 
         # Zona para soltar archivos comprimidos o carpetas de mod (instalación local).
@@ -363,7 +364,7 @@ class MainWindow(QMainWindow):
         # --- Selector de juego ---
         self.game_combo = QComboBox()
         for g in games.all_games():
-            self.game_combo.addItem(g.name, g.key)
+            self.game_combo.addItem(g.display, g.key)
         gi = self.game_combo.findData(config.game_domain)
         self.game_combo.setCurrentIndex(gi if gi >= 0 else 0)
         self.game_combo.setToolTip(tr("Juego activo"))
@@ -442,7 +443,11 @@ class MainWindow(QMainWindow):
         self.home_panel.go_explore.connect(lambda: self.tabs.setCurrentWidget(self.explore_tab))
         self.downloads_panel = DownloadsPanel(manager, self)
         self.mods_panel = ModsPanel(manager)
-        self.mods_panel.translate_all_requested.connect(self._translate_all)
+        self.mods_panel.translate_all_requested.connect(self._translate_all_web)
+        self.manager.updates_checked.connect(self._on_updates_checked)
+        # Al añadir/instalar un mod, leer su página oficial: traducciones al idioma de la
+        # app y requisitos de la sección Requirements (mismo escáner web para todo).
+        self.manager.page_lookup.connect(self._on_page_lookup)
         self.log_tab = self._build_log_tab()
 
         self.tabs = QTabWidget()
@@ -557,7 +562,16 @@ class MainWindow(QMainWindow):
 
     def _on_log(self, msg: str) -> None:
         self.log_panel.appendPlainText(msg)
-        self.status_label.setText(msg.splitlines()[0][:120])
+        first = (msg.splitlines() or [""])[0]   # un mensaje vacío no debe reventar el slot Qt
+        self.status_label.setText(first[:120])
+
+    def _on_updates_checked(self, n: int) -> None:
+        if n < 0:
+            self._status(tr("No se pudo comprobar actualizaciones."))
+            return
+        self.mods_panel.refresh()               # repinta insignias ⬆ y el filtro
+        self._status(tr("{n} mod(s) con actualización disponible.").format(n=n)
+                     if n else tr("Todos tus mods están al día."))
 
     def _on_nxm(self, url: str) -> None:
         self.manager.enqueue_nxm(url)
@@ -569,7 +583,12 @@ class MainWindow(QMainWindow):
         # instalarlo e (si procede) resolver sus dependencias y traducción.
         if not path.lower().endswith((".zip", ".7z", ".rar")):
             return
-        parsed = self._parse_mod_page(self.webview.url().toString()) or self._last_mod_page
+        parsed = self._parse_mod_page(self.webview.url().toString())
+        # Fallback a la última página de mod SOLO si es del juego activo (si no, se
+        # registraría el archivo con el mod/juego equivocado tras cambiar de juego).
+        if not parsed and self._last_mod_page \
+                and self._last_mod_page[0] == self.config.game().domain:
+            parsed = self._last_mod_page
         if parsed:
             domain, mod_id = parsed
             self.manager.enqueue_local(path, mod_id=mod_id, game_domain=domain)
@@ -735,6 +754,13 @@ class MainWindow(QMainWindow):
         self._queue_mod(game_domain, mod_id)
         self.tabs.setCurrentWidget(self.downloads_panel)
 
+    def _enqueue_mod_with_web_deps(self, game_domain: str, mod_id: int, req_json: str) -> None:
+        """Encola el mod usando las dependencias leídas de la página (Requirements) — la
+        fuente autoritativa — además de las del GraphQL (complemento)."""
+        from ..nexus_graphql import parse_download_links
+        web_deps = parse_download_links(req_json or "")
+        self.manager.enqueue_mod(game_domain, mod_id, extra_deps=web_deps)
+
     @staticmethod
     def _extract_mod_id(url: str) -> int | None:
         import re
@@ -833,11 +859,87 @@ class MainWindow(QMainWindow):
             .format(who=(" como " + name) if name else ""))
         self._status(tr("Sesión de Nexus iniciada."))
 
-    def _translate_all(self) -> None:
-        """Busca y encola la traducción al idioma de la app de todos los mods instalados,
-        usando la API OFICIAL de Nexus (nunca scraping de páginas web)."""
-        self.manager.translate_installed_mods()
-        self._status(tr("Buscando traducciones en segundo plano; míralo en Descargas."))
+    # --- Traducir mis mods leyendo la lista OFICIAL de cada página (vía navegador) ---
+    _TR_LANG_WORDS = {
+        "es": ["spanish", "español", "espanol", "castellano"],
+        "fr": ["french", "français", "francais"],
+        "de": ["german", "deutsch"],
+        "it": ["italian", "italiano"],
+        "ru": ["russian", "русский"],
+    }
+
+    def _get_tr_scanner(self):
+        """Escáner de páginas de mod (perezoso, único): lee de la página OFICIAL de cada mod
+        su lista de traducciones y sus requisitos («Nexus requirements»). Lo comparten el
+        botón masivo de traducir y las descargas de mods sueltos."""
+        sc = getattr(self, "_tr_scanner", None)
+        if sc is None:
+            from .translation_scan import TranslationScanner
+            words = self._TR_LANG_WORDS.get(self.config.language or "es", [])
+            sc = TranslationScanner(self.webview.profile(), words, self)
+            sc.translation_found.connect(self._on_translation_found)
+            sc.requirement_found.connect(self._on_requirement_found)
+            sc.scanning.connect(self._on_scan_page)
+            sc.idle.connect(self._on_scan_idle)
+            self._tr_scanner = sc
+        return sc
+
+    def _on_scan_page(self, dom: str, mid: int) -> None:
+        self._status(tr("Leyendo la página del mod {mid}…").format(mid=mid))
+        self.manager.log.emit(tr("🌐 Leyendo la página del mod {mid} (traducciones/requisitos)…")
+                              .format(mid=mid))
+
+    def _on_scan_idle(self, pages: int) -> None:
+        self.manager.log.emit(tr("🌐 Escáner de páginas terminado: {n} página(s) leída(s).")
+                              .format(n=pages))
+
+    def _wrong_domain(self, dom: str) -> bool:
+        """True si ``dom`` pertenece a OTRO juego que el activo. Los mods de un juego se
+        instalan en la Data de ESE juego; encolar un requisito/traducción de otro dominio lo
+        metería en la carpeta equivocada. SSE y AE comparten dominio, así que compara contra
+        game().domain (no la clave interna)."""
+        active = self.config.game().domain
+        return bool(dom) and dom != active
+
+    def _on_translation_found(self, dom: str, tmid: int, name: str) -> None:
+        if self._wrong_domain(dom):
+            return
+        if not self.manager.store.is_installed(tmid):
+            self.manager.log.emit(tr("🌐 Traducción encontrada: {name} (mod {id}). Encolando…")
+                                  .format(name=name or ("mod " + str(tmid)), id=tmid))
+            self.manager.enqueue_translation_mod(dom or self.config.game().domain, tmid, name)
+
+    def _on_requirement_found(self, dom: str, rmid: int, name: str) -> None:
+        """Requisito leído de la sección «Nexus requirements» de la página de un mod."""
+        if self._wrong_domain(dom):
+            self._status(tr("Requisito de otro juego ({dom}) omitido.").format(dom=dom))
+            return
+        self.manager.enqueue_requirement_mod(dom or self.config.game().domain, rmid, name)
+
+    def _translate_all_web(self) -> None:
+        if (self.config.language or "es") not in self._TR_LANG_WORDS:
+            return
+        mods = [(getattr(m, "game_domain", "") or self.config.game_domain, m.mod_id, m.name)
+                for m in self.manager.store.all() if getattr(m, "mod_id", 0) and m.mod_id > 0]
+        if not mods:
+            return
+        if not self.manager.is_logged_in and QMessageBox.question(
+                self, tr("Traducir mis mods"),
+                tr("No has iniciado sesión en Nexus; algunas páginas podrían no cargar. "
+                   "¿Continuar igualmente?")) != QMessageBox.StandardButton.Yes:
+            return
+        self._get_tr_scanner().add(mods)
+        self._status(tr("Leyendo la lista oficial de traducciones de tus mods…"))
+
+    def _on_page_lookup(self, dom: str, mid: int, name: str, want_tr: bool) -> None:
+        """El gestor pide leer la página de un mod: traducciones oficiales (si want_tr) y
+        requisitos de «Nexus requirements» (si el resolutor de dependencias está activo)."""
+        want_tr = bool(want_tr and (self.config.language or "es") in self._TR_LANG_WORDS)
+        want_req = bool(getattr(self.config, "resolve_dependencies", True))
+        if not (want_tr or want_req):
+            return
+        self._get_tr_scanner().add([(dom or self.config.game_domain, mid, name)],
+                                   want_translations=want_tr, want_requirements=want_req)
 
     def _auto_import_mods(self) -> None:
         """Sincroniza en silencio la lista con la «Carpeta de mods» (estilo MO2): añade los
@@ -922,8 +1024,9 @@ class MainWindow(QMainWindow):
                     .format(domain=domain, active=active)
                 )
                 return
-            # Encola el mod; sus dependencias se resuelven con la API oficial de Nexus.
-            self.manager.enqueue_mod(domain, mod_id)
+            # Lee las dependencias de la página (Requirements) y encola el mod con ellas.
+            self.webview.read_requirements(
+                lambda s, d=domain, m=mod_id: self._enqueue_mod_with_web_deps(d, m, s))
             self.tabs.setCurrentWidget(self.downloads_panel)
             return
         if "/collections/" in url.lower():
@@ -1054,11 +1157,11 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, tr("No se pudo iniciar el juego"), str(e))
             return
         if launcher.extender_active(self.config, exe):
-            self._on_log(tr("▶ Iniciando {game} con {se}: {exe}").format(game=g.name, se=se, exe=exe))
+            self._on_log(tr("▶ Iniciando {game} con {se}: {exe}").format(game=g.display, se=se, exe=exe))
         elif launcher.extender_is_optional(self.config):
             # Morrowind (MWSE se inyecta, sin loader) u Oblivion de Steam (OBSE se inyecta):
             # lanzar el .exe del juego es lo correcto, no un fallo → sin aviso.
-            self._on_log(tr("▶ Iniciando {game}: {exe}").format(game=g.name, exe=exe))
+            self._on_log(tr("▶ Iniciando {game}: {exe}").format(game=g.display, exe=exe))
         else:
             self._on_log(tr("▶ {se} no encontrado; iniciando {name}: {exe}").format(
                 se=se, name=exe.name, exe=exe))
@@ -1074,10 +1177,10 @@ class MainWindow(QMainWindow):
         se = self.config.game().script_extender or "SE"
         self.play_btn.setText(tr("Jugar ({se})").format(se=se))
         self.play_btn.setIcon(icons.icon("play", "#0b2a12"))
-        self.play_btn.setToolTip(tr("Lanzar {game} con {se}").format(game=self.config.game().name, se=se))
+        self.play_btn.setToolTip(tr("Lanzar {game} con {se}").format(game=self.config.game().display, se=se))
 
     def _refresh_title(self) -> None:
-        self.setWindowTitle(f"BMI — {self.config.game().name}")
+        self.setWindowTitle(f"BMI — {self.config.game().display}")
 
     def _on_game_changed(self) -> None:
         key = self.game_combo.currentData()
@@ -1094,6 +1197,13 @@ class MainWindow(QMainWindow):
             return
         # Idle: purga cualquier resto y cambia.
         self.manager.purge_pending()
+        # Parar el escáner de páginas: has_pending_work() no lo mira, así que podría seguir
+        # leyendo páginas del juego ANTERIOR y encolar sus requisitos/traducciones en el
+        # juego nuevo (Data equivocada). Descartamos su cola en curso.
+        sc = getattr(self, "_tr_scanner", None)
+        if sc is not None:
+            sc.reset()
+        self._last_mod_page = None   # no asociar una descarga manual al mod del juego anterior
         self.downloads_panel.rebuild()
         self.config.switch_game(key)
         self.manager.reload_for_game()
@@ -1103,7 +1213,7 @@ class MainWindow(QMainWindow):
         self._auto_import_mods()   # detecta mods ya presentes en la carpeta del juego nuevo
         self._refresh_play_btn()
         self._refresh_title()
-        self._status(f"Juego activo: {self.config.game().name}")
+        self._status(tr("Juego activo: {game}").format(game=self.config.game().display))
 
     def _set_game_combo(self, key: str) -> None:
         gi = self.game_combo.findData(key)
@@ -1213,11 +1323,9 @@ class MainWindow(QMainWindow):
                     if right: return True, self._HT["right"]
                     if top: return True, self._HT["top"]
                     if bottom: return True, self._HT["bottom"]
-                # Zona de la barra de título (menos sus botones) = mover/doble clic/Snap.
-                tb = getattr(self, "titlebar", None)
-                if tb is not None and pos.y() < tb.height():
-                    if not tb.is_over_button(tb.mapFrom(self, pos)):
-                        return True, self._HT["caption"]
+                # El resto (incluida la barra de título) = área de cliente: Qt recibe los
+                # clics y la barra gestiona el arrastre con startSystemMove (funciona con el
+                # navegador WebView2 incrustado, donde el HTCAPTION nativo se rompía).
                 return True, self._HT["client"]
         except Exception:  # noqa: BLE001
             pass

@@ -1,5 +1,10 @@
 @echo off
 REM ===================================================================
+REM  *** OBSOLETO — NO USAR PARA RELEASES ***
+REM  Este script NO incluye WebView2 / PyYAML(LOOT) / pythonnet(clr), asi que
+REM  produciria un BMI.exe ROTO. El build CANONICO y actual es 'build_wv2.py'
+REM  (python build_wv2.py). Se conserva solo como referencia historica.
+REM ===================================================================
 REM  Compila BMI.exe (Nuitka --onefile): un unico .exe portable que se
 REM  autoextrae en temp al arrancar. Compila el Python a codigo maquina
 REM  real (mas dificil de descompilar que PyInstaller).
@@ -17,7 +22,7 @@ if not exist "%PY%" set "PY=python"
   --windows-icon-from-ico=icon.ico ^
   --company-name=carbollo ^
   --product-name="BMI - Bethesda Mod Installer" ^
-  --file-version=1.3.7.0 --product-version=1.3.7 ^
+  --file-version=1.3.8.0 --product-version=1.3.8 ^
   --file-description="BMI - Bethesda Mod Installer - gestor de mods de Nexus" ^
   --copyright="(c) 2026 carbollo - BMI" ^
   --include-package=nexus_mod_installer ^

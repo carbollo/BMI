@@ -7,6 +7,7 @@ Modelo "gestionado" (como Vortex/MO2):
 """
 from __future__ import annotations
 
+import filecmp
 import os
 import re
 import shutil
@@ -174,6 +175,18 @@ def _link_or_copy(src: Path, dst: Path, method: str) -> None:
     shutil.copy2(src, dst)
 
 
+def same_volume(a, b) -> bool:
+    """True si dos rutas están en el mismo volumen. Si NO lo están, los hardlinks fallan y el
+    despliegue cae a copia (ocupa el doble sin avisar) → sirve para advertir al usuario."""
+    try:
+        pa, pb = Path(a).resolve(), Path(b).resolve()
+        if pa.drive and pb.drive:
+            return pa.drive.lower() == pb.drive.lower()
+        return os.stat(pa).st_dev == os.stat(pb).st_dev
+    except OSError:
+        return True   # ante la duda, no molestar
+
+
 def deploy(
     data_root: str | os.PathLike,
     game_data_path: str | os.PathLike,
@@ -220,16 +233,45 @@ def deploy(
     return deployed
 
 
-def undeploy(deployed_files: list[str], game_data_path: str | os.PathLike) -> int:
-    """Elimina de Data los archivos previamente desplegados. Devuelve cuántos borró."""
+def _owns_deployed(src: Path, tgt: Path, method: str) -> bool:
+    """¿El archivo ``tgt`` en Data es REALMENTE el que desplegó este mod (mismo ``src``)?
+    - hardlink: mismo inodo (samefile).
+    - copy: mismo contenido byte a byte (filecmp corta antes por tamaño → barato).
+    Nunca da True para un archivo vanilla/del usuario ni el de OTRO mod distinto."""
+    try:
+        if src.samefile(tgt):
+            return True
+    except OSError:
+        pass
+    if method != "hardlink":
+        try:
+            return filecmp.cmp(str(src), str(tgt), shallow=False)
+        except OSError:
+            return False
+    return False
+
+
+def undeploy(deployed_files: list[str], game_data_path: str | os.PathLike,
+             src_root: str | os.PathLike | None = None, method: str = "hardlink") -> int:
+    """Elimina de Data los archivos previamente desplegados. Devuelve cuántos borró.
+
+    Si se pasa ``src_root`` (la carpeta del mod), SOLO borra los archivos que de verdad
+    pertenecen a este mod (mismo inodo con hardlink, o mismo contenido con copia). Así no se
+    borra el archivo de OTRO mod activo que aporte la misma ruta (situación habitual en
+    Skyrim: dos mods con ``textures/foo.dds``). Sin ``src_root`` mantiene el borrado
+    incondicional (solo para rutas ya verificadas como huérfanas por el llamante)."""
     dst_root = Path(game_data_path)
+    src_base = Path(src_root) if src_root else None
     removed = 0
     for rel in deployed_files:
         target = dst_root / rel
         try:
-            if target.is_file():
-                target.unlink()
-                removed += 1
+            if not target.is_file():
+                continue
+            if src_base is not None and not _owns_deployed(src_base / rel, target, method):
+                continue
+            target.unlink()
+            removed += 1
         except OSError:
             pass
     return removed
@@ -341,42 +383,42 @@ def enable_plugins(plugins_txt_path: str | os.PathLike, plugin_names: list[str],
     """
     if not plugin_names:
         return
-    path = Path(plugins_txt_path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-
-    existing_lines: list[str] = []
-    existing_names: set[str] = set()
-    if path.is_file():
-        existing_lines = path.read_text(encoding="utf-8-sig", errors="ignore").splitlines()
-        for line in existing_lines:
-            name = line.strip().lstrip("*").strip()
-            if name:
+    from .scanner import PLUGINS_TXT_LOCK, _atomic_write_text
+    with PLUGINS_TXT_LOCK:                          # serializa con el resto de escrituras
+        path = Path(plugins_txt_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        existing_lines: list[str] = []
+        existing_names: set[str] = set()
+        if path.is_file():
+            existing_lines = path.read_text(encoding="utf-8-sig", errors="ignore").splitlines()
+            for line in existing_lines:
+                name = line.strip().lstrip("*").strip()
+                if name:
+                    existing_names.add(name.lower())
+        added = []
+        for name in plugin_names:
+            if name.lower() not in existing_names:
+                added.append(f"*{name}" if star_prefix else name)
                 existing_names.add(name.lower())
-
-    added = []
-    for name in plugin_names:
-        if name.lower() not in existing_names:
-            added.append(f"*{name}" if star_prefix else name)
-            existing_names.add(name.lower())
-
-    if added:
-        new_content = "\n".join(existing_lines + added).strip() + "\n"
-        path.write_text(new_content, encoding="utf-8")
+        if added:
+            _atomic_write_text(path, "\n".join(existing_lines + added).strip() + "\n")
 
 
 def disable_plugins(plugins_txt_path: str | os.PathLike, plugin_names: list[str]) -> None:
     """Quita plugins de plugins.txt."""
-    path = Path(plugins_txt_path)
-    if not path.is_file():
-        return
-    drop = {n.lower() for n in plugin_names}
-    kept = []
-    for line in path.read_text(encoding="utf-8-sig", errors="ignore").splitlines():
-        name = line.strip().lstrip("*").strip()
-        if name.lower() in drop:
-            continue
-        kept.append(line)
-    path.write_text("\n".join(kept).strip() + "\n", encoding="utf-8")
+    from .scanner import PLUGINS_TXT_LOCK, _atomic_write_text
+    with PLUGINS_TXT_LOCK:                          # serializa con el resto de escrituras
+        path = Path(plugins_txt_path)
+        if not path.is_file():
+            return
+        drop = {n.lower() for n in plugin_names}
+        kept = []
+        for line in path.read_text(encoding="utf-8-sig", errors="ignore").splitlines():
+            name = line.strip().lstrip("*").strip()
+            if name.lower() in drop:
+                continue
+            kept.append(line)
+        _atomic_write_text(path, "\n".join(kept).strip() + "\n")
 
 
 # ---------------------------------------------------------------------------

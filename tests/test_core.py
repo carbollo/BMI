@@ -551,7 +551,11 @@ def test_oauth_pkce_and_flow():
     assert 43 <= len(v) <= 128
     expect = _b64.urlsafe_b64encode(_hl.sha256(v.encode()).digest()).rstrip(b"=").decode()
     assert c == expect
+    # Guarda la config real (CLIENT_ID/REDIRECT_URI ya están registrados en Nexus) para
+    # restaurarla al final; el test la sobreescribe temporalmente.
+    _real_cid, _real_ruri = oauth.CLIENT_ID, oauth.REDIRECT_URI
     # Sin CLIENT_ID/REDIRECT_URI -> error claro (no se puede iniciar el flujo)
+    oauth.CLIENT_ID, oauth.REDIRECT_URI = "", ""
     try:
         oauth.LoginFlow(); assert False, "debería exigir configuración"
     except oauth.OAuthNotConfigured:
@@ -577,7 +581,7 @@ def test_oauth_pkce_and_flow():
             except oauth.OAuthError:
                 pass
     finally:
-        oauth.CLIENT_ID, oauth.REDIRECT_URI = "", ""
+        oauth.CLIENT_ID, oauth.REDIRECT_URI = _real_cid, _real_ruri  # restaura la config real
     print("OK  oauth PKCE + URL de autorización + parseo de redirect (state/error)")
 
 

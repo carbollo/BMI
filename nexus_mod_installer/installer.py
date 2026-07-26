@@ -8,6 +8,7 @@ import os
 import re
 import shutil
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -46,6 +47,8 @@ class InstalledModsStore:
         self.path = base / f"installed_mods_{config.game_domain}.json"
         self._legacy = base / "installed_mods.json"  # fichero antiguo (solo Skyrim SE)
         self.mods: dict[int, InstalledMod] = {}
+        # El hilo worker (instalación) y el hilo GUI acceden al store a la vez → RLock.
+        self._lock = threading.RLock()
         self.load()
 
     def load(self) -> None:
@@ -74,21 +77,64 @@ class InstalledModsStore:
                 pass
 
     def save(self) -> None:
-        data = {"mods": [m.to_dict() for m in self.mods.values()]}
-        self.path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+        """Guardado ATÓMICO: escribe a un temporal en el mismo directorio y lo renombra con
+        os.replace (operación atómica). Así una interrupción a mitad no trunca el JSON ni
+        provoca la pérdida del manifiesto en el siguiente arranque."""
+        with self._lock:
+            data = {"mods": [m.to_dict() for m in self.mods.values()]}
+            payload = json.dumps(data, indent=2, ensure_ascii=False)
+            d = self.path.parent
+            d.mkdir(parents=True, exist_ok=True)
+            fd, tmp = tempfile.mkstemp(dir=str(d), prefix=self.path.stem + "_", suffix=".tmp")
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    f.write(payload)
+                    f.flush()
+                    os.fsync(f.fileno())
+                os.replace(tmp, self.path)
+            except BaseException:
+                try:
+                    os.unlink(tmp)
+                except OSError:
+                    pass
+                raise
 
     def add(self, mod: InstalledMod) -> None:
-        self.mods[mod.mod_id] = mod
-        self.save()
+        with self._lock:
+            self.mods[mod.mod_id] = mod
+            self.save()
+
+    def put(self, mod: InstalledMod, save: bool = True) -> None:
+        with self._lock:
+            self.mods[mod.mod_id] = mod
+            if save:
+                self.save()
+
+    def bulk_put(self, mods, save: bool = True) -> None:
+        with self._lock:
+            for m in mods:
+                self.mods[m.mod_id] = m
+            if save:
+                self.save()
+
+    def remove(self, mod_id: int, save: bool = True) -> bool:
+        with self._lock:
+            existed = self.mods.pop(mod_id, None) is not None
+            if save and existed:
+                self.save()
+            return existed
 
     def get(self, mod_id: int) -> InstalledMod | None:
-        return self.mods.get(mod_id)
+        with self._lock:
+            return self.mods.get(mod_id)
 
     def all(self) -> list[InstalledMod]:
-        return list(self.mods.values())
+        with self._lock:
+            return list(self.mods.values())
 
     def is_installed(self, mod_id: int) -> bool:
-        return mod_id in self.mods
+        with self._lock:
+            return mod_id in self.mods
 
 
 class Installer:
@@ -159,6 +205,19 @@ class Installer:
         plugins = deploy.list_plugins(data_root)
         root_files = self._find_root_files(Path(data_root), root_also)
 
+        # ¿Es una REINSTALACIÓN/ACTUALIZACIÓN del mismo mod? Recupera el registro anterior para
+        # conservar la organización/estado del usuario y RETIRAR de Data la versión vieja (si no,
+        # se pierden prioridad/categoría/notas/ocultos/activado y quedan archivos huérfanos).
+        prev = self.store.get(task.mod_id) if task.mod_id else None
+        if prev and self.config.game_data_path:
+            if prev.deployed_files:
+                deploy.undeploy(prev.deployed_files, self.config.game_data_path,
+                                src_root=prev.install_dir, method=self.config.deploy_method)
+            if prev.deployed_root_files:
+                groot = self._game_root()
+                if groot:
+                    deploy.undeploy_root(prev.deployed_root_files, groot)
+
         mod = InstalledMod(
             mod_id=task.mod_id,
             name=task.mod_name or archive_path.stem,
@@ -166,13 +225,24 @@ class Installer:
             game_domain=task.game_domain,
             install_dir=str(data_root),
             plugins=plugins,
-            installed_at=time.time(),
+            # installed_at (baseline de actualizaciones) se conserva del anterior; deployed_at sí
+            # se refresca (nuevo despliegue).
+            installed_at=(prev.installed_at if prev and prev.installed_at else time.time()),
+            deployed_at=time.time(),
+            file_updated_at=float(getattr(task, "file_uploaded_at", 0) or 0),
             size_bytes=_dir_size(data_root),
             picture_url=getattr(task, "picture_url", "") or "",
+            # Conservar la organización/estado del usuario al actualizar:
+            priority=(prev.priority if prev else 0),
+            category=(prev.category if prev else ""),
+            notes=(prev.notes if prev else ""),
+            hidden_files=(list(prev.hidden_files) if prev else []),
+            enabled=(prev.enabled if prev else True),
         )
 
-        # 4) Desplegar a Data (+ a la carpeta raíz del juego si procede)
-        if self.config.auto_deploy:
+        # 4) Desplegar a Data (+ a la carpeta raíz del juego si procede). Si el mod estaba
+        #    DESACTIVADO, no se re-despliega (se respeta ese estado).
+        if self.config.auto_deploy and mod.enabled:
             mod.deployed_files, mod.deployed_root_files = self._deploy(mod, root_files, log)
             if self.config.auto_enable_plugins and plugins:
                 self._enable_plugins(plugins, log)
@@ -190,6 +260,13 @@ class Installer:
         if not self.config.game_data_path:
             log(tr("AVISO: no hay carpeta Data configurada; no se desplegó."))
             return [], []
+        if (self.config.deploy_method == "hardlink"
+                and not getattr(self, "_warned_hl_vol", False)
+                and not deploy.same_volume(self.config.mods_dir, self.config.game_data_path)):
+            self._warned_hl_vol = True
+            log(tr("⚠ La carpeta de mods y la carpeta Data están en unidades DISTINTAS: ahí los "
+                   "hardlinks no funcionan y BMI está COPIANDO (ocupa el doble). Ponlas en la "
+                   "misma unidad, o cambia el método a «copiar» en Ajustes para quitar este aviso."))
         vfs = getattr(self.config, "vfs_mode", False)
         log(tr("Desplegando a {path} ({method}){vfs}…").format(
             path=self.config.game_data_path, method=self.config.deploy_method,
@@ -303,18 +380,21 @@ class Installer:
                     plugins_only=getattr(self.config, "vfs_mode", False),
                 )
                 mod.deployed_root_files = self._deploy_root(root_files, log)
-                # Re-desplegar lo convierte en el último escritor en disco: actualiza la
-                # fecha para que la detección de conflictos acierte el ganador.
-                mod.installed_at = time.time()
+                # Re-desplegar lo convierte en el último escritor en disco: actualiza
+                # deployed_at (NO installed_at, que es la baseline fija de actualizaciones)
+                # para que el desempate de conflictos acierte el ganador.
+                mod.deployed_at = time.time()
             if self.config.auto_enable_plugins and mod.plugins:
                 self._enable_plugins(mod.plugins, log)
             log(tr("Activado: {name} ({n} archivos desplegados)")
                 .format(name=mod.name, n=len(mod.deployed_files)))
         else:
             if mod.deployed_files and self.config.game_data_path:
-                removed = deploy.undeploy(mod.deployed_files, self.config.game_data_path)
+                removed = deploy.undeploy(mod.deployed_files, self.config.game_data_path,
+                                          src_root=mod.install_dir, method=self.config.deploy_method)
                 log(tr("Desactivado: {name} ({n} archivos retirados de Data)")
                     .format(name=mod.name, n=removed))
+                self._reconcile_removed(mod.deployed_files, exclude_mod_id=mod_id, log=log)
             if mod.deployed_root_files:
                 groot = self._game_root()
                 if groot:
@@ -337,7 +417,8 @@ class Installer:
         mod.hidden_files = new_hidden
         if mod.enabled and self.config.game_data_path:
             if mod.deployed_files:
-                deploy.undeploy(mod.deployed_files, self.config.game_data_path)
+                deploy.undeploy(mod.deployed_files, self.config.game_data_path,
+                                src_root=mod.install_dir, method=self.config.deploy_method)
             root_files = self._root_files_for(mod)
             mod.deployed_files = deploy.deploy(
                 mod.install_dir, self.config.game_data_path, self.config.deploy_method,
@@ -387,7 +468,8 @@ class Installer:
         for lst in owners.values():
             if len(lst) < 2:
                 continue
-            winner_m, winner_rel = max(lst, key=lambda t: (t[0].priority, t[0].installed_at))
+            winner_m, winner_rel = max(
+                lst, key=lambda t: (t[0].priority, t[0].deployed_at or t[0].installed_at))
             src = Path(winner_m.install_dir) / winner_rel
             if src.is_file():
                 try:
@@ -399,6 +481,40 @@ class Installer:
             log(tr("Orden de prioridad aplicado: {n} archivo(s) en conflicto reasignados.")
                 .format(n=changed))
         return changed
+
+    def _reconcile_removed(self, rels, exclude_mod_id, log=lambda m: None) -> int:
+        """Tras retirar archivos de Data al quitar/desactivar un mod, re-despliega para cada
+        ruta liberada el mejor propietario habilitado que quede (mayor prioridad; la fecha
+        desempata). Cubre el caso de un ÚNICO propietario restante, que apply_priority_order
+        ignora (salta cuando len(lst) < 2). Evita que Data quede sin un archivo que otro mod
+        activo también aporta."""
+        if not self.config.game_data_path or not rels:
+            return 0
+        data = Path(self.config.game_data_path)
+        want = {r.lower() for r in rels}
+        owners: dict[str, list] = {}
+        for m in self.store.all():
+            if not m.enabled or m.mod_id == exclude_mod_id:
+                continue
+            for rel in m.deployed_files:
+                if rel.lower() in want:
+                    owners.setdefault(rel.lower(), []).append((m, rel))
+        restored = 0
+        for lst in owners.values():
+            winner_m, winner_rel = max(
+                lst, key=lambda t: (t[0].priority, t[0].deployed_at or t[0].installed_at))
+            src = Path(winner_m.install_dir) / winner_rel
+            tgt = data / winner_rel
+            if src.is_file() and not tgt.exists():
+                try:
+                    deploy._link_or_copy(src, tgt, self.config.deploy_method)
+                    restored += 1
+                except OSError:
+                    pass
+        if restored:
+            log(tr("Reconciliados {n} archivo(s) que otro mod activo también aporta.")
+                .format(n=restored))
+        return restored
 
     @staticmethod
     def _same_deployed(src: Path, tgt: Path, method: str) -> bool:
@@ -514,8 +630,10 @@ class Installer:
         if not mod:
             return False
         if mod.deployed_files and self.config.game_data_path:
-            removed = deploy.undeploy(mod.deployed_files, self.config.game_data_path)
+            removed = deploy.undeploy(mod.deployed_files, self.config.game_data_path,
+                                      src_root=mod.install_dir, method=self.config.deploy_method)
             log(tr("Eliminados {n} archivos de Data.").format(n=removed))
+            self._reconcile_removed(mod.deployed_files, exclude_mod_id=mod_id, log=log)
         if mod.deployed_root_files:
             groot = self._game_root()
             if groot:
@@ -532,7 +650,6 @@ class Installer:
                 shutil.rmtree(base, ignore_errors=True)
         except Exception:
             pass
-        self.store.mods.pop(mod_id, None)
-        self.store.save()
+        self.store.remove(mod_id)
         log(tr("Desinstalado: {name}").format(name=mod.name))
         return True
